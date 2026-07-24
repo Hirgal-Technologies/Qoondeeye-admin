@@ -211,7 +211,7 @@ function DashboardShellContent({
         <div className="fixed inset-0 z-50 lg:hidden">
           <button
             type="button"
-            className="absolute inset-0 bg-black/55"
+            className="absolute inset-0 bg-overlay/55"
             aria-label="Close navigation"
             onClick={() => setMobileOpen(false)}
           />
@@ -563,7 +563,7 @@ function CommandMenu({
     <div className="fixed inset-0 z-[70] flex items-start justify-center px-3 pt-[12vh] sm:pt-[16vh]">
       <button
         type="button"
-        className="absolute inset-0 bg-black/55"
+        className="absolute inset-0 bg-overlay/55"
         onClick={onClose}
         aria-label="Close search"
       />

@@ -19,18 +19,19 @@
 
 | Role | Hex | CSS Variable |
 |------|-----|--------------|
-| Primary | `#1E40AF` | `--color-primary` |
-| On Primary | `#FFFFFF` | `--color-on-primary` |
-| Secondary | `#3B82F6` | `--color-secondary` |
-| Accent/CTA | `#D97706` | `--color-accent` |
-| Background | `#F8FAFC` | `--color-background` |
-| Foreground | `#1E3A8A` | `--color-foreground` |
-| Muted | `#E9EEF6` | `--color-muted` |
-| Border | `#DBEAFE` | `--color-border` |
-| Destructive | `#DC2626` | `--color-destructive` |
-| Ring | `#1E40AF` | `--color-ring` |
+| Primary | `hsl(240 5.9% 10%)` | `--primary` |
+| On Primary | `hsl(0 0% 98%)` | `--primary-foreground` |
+| Secondary | `hsl(240 4.8% 95.9%)` | `--secondary` |
+| Accent | `hsl(240 4.8% 95.9%)` | `--accent` |
+| Background | `hsl(0 0% 100%)` | `--background` |
+| Foreground | `hsl(240 10% 3.9%)` | `--foreground` |
+| Card | `hsl(0 0% 100%)` | `--card` |
+| Muted | `hsl(240 4.8% 95.9%)` | `--muted` |
+| Border / Input | `hsl(240 5.9% 90%)` | `--border` / `--input` |
+| Destructive | `hsl(0 84.2% 60.2%)` | `--destructive` |
+| Ring | `hsl(240 5.9% 10%)` | `--ring` |
 
-**Color Notes:** Blue data + amber highlights [Accent adjusted from #F59E0B for WCAG 3:1]
+**Color Notes:** Use semantic theme tokens throughout. The palette is neutral grayscale; red is reserved for destructive and critical states. Dark mode inverts foreground and primary, uses true black for the page background, and gives cards and popovers subtly raised neutral surfaces.
 
 ### Typography
 
@@ -76,8 +77,8 @@
 ```css
 /* Primary Button */
 .btn-primary {
-  background: #D97706;
-  color: white;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
   padding: 12px 24px;
   border-radius: 8px;
   font-weight: 600;
@@ -92,9 +93,9 @@
 
 /* Secondary Button */
 .btn-secondary {
-  background: transparent;
-  color: #1E40AF;
-  border: 2px solid #1E40AF;
+  background: hsl(var(--secondary));
+  color: hsl(var(--secondary-foreground));
+  border: 1px solid hsl(var(--border));
   padding: 12px 24px;
   border-radius: 8px;
   font-weight: 600;
@@ -107,8 +108,10 @@
 
 ```css
 .card {
-  background: #F8FAFC;
-  border-radius: 12px;
+  background: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
   padding: 24px;
   box-shadow: var(--shadow-md);
   transition: all 200ms ease;
@@ -126,16 +129,18 @@
 ```css
 .input {
   padding: 12px 16px;
-  border: 1px solid #E2E8F0;
-  border-radius: 8px;
+  border: 1px solid hsl(var(--input));
+  border-radius: var(--radius);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
   font-size: 16px;
   transition: border-color 200ms ease;
 }
 
 .input:focus {
-  border-color: #1E40AF;
+  border-color: hsl(var(--ring));
   outline: none;
-  box-shadow: 0 0 0 3px #1E40AF20;
+  box-shadow: 0 0 0 3px hsl(var(--ring) / 0.15);
 }
 ```
 
@@ -148,7 +153,9 @@
 }
 
 .modal {
-  background: white;
+  background: hsl(var(--popover));
+  color: hsl(var(--popover-foreground));
+  border: 1px solid hsl(var(--border));
   border-radius: 16px;
   padding: 32px;
   box-shadow: var(--shadow-xl);

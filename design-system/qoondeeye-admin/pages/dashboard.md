@@ -27,7 +27,7 @@
 
 ### Color Overrides
 
-- **Strategy:** Dark or neutral. Status colors (green/amber/red). Data-dense but scannable.
+- **Strategy:** Neutral grayscale in both themes. Use tonal contrast for routine statuses and reserve semantic destructive red for critical or destructive states.
 
 ### Component Overrides
 

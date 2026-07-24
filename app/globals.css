@@ -29,9 +29,13 @@
   --chart-3: 240 3.8% 46.1%;
   --chart-4: 240 4% 62%;
   --chart-5: 240 5% 76%;
+  --chart-6: 240 4% 38%;
+  --chart-7: 240 4% 54%;
+  --chart-8: 0 84.2% 60.2%;
   --status-success: 240 5.9% 10%;
   --status-warning: 240 3.8% 46.1%;
   --status-critical: 0 84.2% 60.2%;
+  --overlay: 0 0% 0%;
 
   --shadow-card: 0 1px 2px hsl(240 10% 3.9% / 0.04);
   --shadow-popover: 0 10px 25px hsl(240 10% 3.9% / 0.12);
@@ -48,9 +52,9 @@
   --series-3: hsl(var(--chart-3));
   --series-4: hsl(var(--chart-4));
   --series-5: hsl(var(--chart-5));
-  --series-6: hsl(240 4% 38%);
-  --series-7: hsl(240 4% 54%);
-  --series-8: hsl(0 84.2% 60.2%);
+  --series-6: hsl(var(--chart-6));
+  --series-7: hsl(var(--chart-7));
+  --series-8: hsl(var(--chart-8));
   --status-good: hsl(var(--status-success));
   --status-serious: hsl(var(--status-warning));
 }
@@ -83,6 +87,9 @@
   --chart-3: 0 0% 62%;
   --chart-4: 0 0% 46%;
   --chart-5: 0 0% 32%;
+  --chart-6: 0 0% 24%;
+  --chart-7: 0 0% 54%;
+  --chart-8: 0 72% 51%;
   --status-success: 0 0% 98%;
   --status-warning: 0 0% 63.9%;
   --status-critical: 0 72% 51%;
@@ -110,6 +117,7 @@
   --color-border: hsl(var(--border));
   --color-input: hsl(var(--input));
   --color-ring: hsl(var(--ring));
+  --color-overlay: hsl(var(--overlay));
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
   --radius-sm: calc(var(--radius) - 2px);
