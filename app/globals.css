@@ -34,6 +34,7 @@
   --status-critical: 0 84.2% 60.2%;
 
   --shadow-card: 0 1px 2px hsl(240 10% 3.9% / 0.04);
+  --shadow-popover: 0 10px 25px hsl(240 10% 3.9% / 0.12);
 
   /* Compatibility aliases for the existing chart layer. */
   --surface-1: hsl(var(--card));
@@ -86,6 +87,7 @@
   --status-warning: 0 0% 63.9%;
   --status-critical: 0 72% 51%;
   --shadow-card: 0 1px 0 hsl(0 0% 100% / 0.03);
+  --shadow-popover: 0 10px 25px hsl(0 0% 0% / 0.5);
 }
 
 @theme inline {

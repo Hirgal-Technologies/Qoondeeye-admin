@@ -49,8 +49,8 @@ export function PieBreakdownChart({
           contentStyle={{
             background: "hsl(var(--popover))",
             border: "1px solid hsl(var(--border))",
-            borderRadius: 8,
-            boxShadow: "0 10px 25px rgba(0,0,0,.12)",
+            borderRadius: "var(--radius)",
+            boxShadow: "var(--shadow-popover)",
             fontSize: 12,
             color: "hsl(var(--popover-foreground))",
           }}
