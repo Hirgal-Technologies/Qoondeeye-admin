@@ -216,7 +216,7 @@ export async function deleteAdminUser(
   });
 }
 
-async function findAuthUserByEmail(email: string) {
+export async function findAuthUserByEmail(email: string) {
   const db = createAdminClient();
   let page = 1;
 

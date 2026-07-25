@@ -38,6 +38,35 @@ export async function getAuditLogs(limit = 100): Promise<AuditLogRow[]> {
     .order("created_at", { ascending: false })
     .limit(limit);
 
+  return mapAuditRows(data);
+}
+
+export async function getSupportAuditEvents(limit = 15): Promise<AuditLogRow[]> {
+  const db = createAdminClient();
+  const { data } = await db
+    .from("audit_log")
+    .select(
+      "id, actor_email, actor_role, action, target_user_id, metadata, created_at, actor:admin_users!audit_log_actor_id_fkey(email, role)"
+    )
+    .like("action", "support_%")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+
+  return mapAuditRows(data);
+}
+
+function mapAuditRows(
+  data: Array<{
+    id: number | string;
+    actor_email: string | null;
+    actor_role: string | null;
+    action: string;
+    target_user_id: string | null;
+    metadata: unknown;
+    created_at: string;
+    actor: { email: string; role: string } | { email: string; role: string }[] | null;
+  }> | null
+): AuditLogRow[] {
   return (data ?? []).map((row) => {
     const actor = Array.isArray(row.actor) ? row.actor[0] : row.actor;
     const metadata =
