@@ -1,6 +1,7 @@
 import "server-only";
-import { NextResponse } from "next/server";
-import { getAdminSession, hasRole, type AdminRole } from "@/lib/auth/session";
+import type { AdminRole } from "@/features/auth/contracts";
+import { apiFailure } from "@/lib/api/responses";
+import { getAdminSession, hasRole } from "@/lib/auth/session";
 
 /**
  * Route Handler guard. Returns the caller's admin identity, or a ready-to-return
@@ -12,14 +13,14 @@ export async function requireAdmin(minRole: AdminRole = "viewer") {
   if (!identity) {
     return {
       identity: null,
-      response: NextResponse.json({ data: null, error: "unauthorized" }, { status: 401 }),
+      response: apiFailure("unauthorized", 401),
     } as const;
   }
 
   if (!hasRole(identity, minRole)) {
     return {
       identity: null,
-      response: NextResponse.json({ data: null, error: "forbidden" }, { status: 403 }),
+      response: apiFailure("forbidden", 403),
     } as const;
   }
 

@@ -1,11 +1,7 @@
-import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth/require";
-import { getSubscriptionsLoansSummary } from "@/lib/data/finance";
+import { getSubscriptionsLoansSummary } from "@/features/analytics/finance/server/queries";
+import { createAdminGetHandler } from "@/lib/api/admin-route";
 
-export async function GET() {
-  const { response } = await requireAdmin("viewer");
-  if (response) return response;
-
-  const data = await getSubscriptionsLoansSummary();
-  return NextResponse.json({ data, error: null });
-}
+export const GET = createAdminGetHandler(
+  { operation: "finance.subscriptions-loans-summary" },
+  getSubscriptionsLoansSummary
+);

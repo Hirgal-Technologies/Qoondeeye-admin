@@ -1,21 +1,17 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { requireAdmin } from "@/lib/auth/require";
-import { getTransactionVolume } from "@/lib/data/finance";
-import { parseDateRange, parseGranularity } from "@/lib/api/params";
-import type { TxType } from "@/lib/data/types";
+import { getTransactionVolume } from "@/features/analytics/finance/server/queries";
+import { createAdminGetHandler } from "@/lib/api/admin-route";
+import {
+  parseDateRange,
+  parseGranularity,
+  parseTransactionType,
+} from "@/lib/api/params";
 
-export async function GET(request: NextRequest) {
-  const { response } = await requireAdmin("viewer");
-  if (response) return response;
-
-  const { from, to } = parseDateRange(request);
-  const granularity = parseGranularity(request);
-  const typeParam = request.nextUrl.searchParams.get("type");
-  const type =
-    typeParam === "expense" || typeParam === "income" || typeParam === "transfer"
-      ? (typeParam as TxType)
-      : undefined;
-
-  const data = await getTransactionVolume({ from, to, granularity, type });
-  return NextResponse.json({ data, error: null });
-}
+export const GET = createAdminGetHandler(
+  { operation: "finance.transaction-volume" },
+  (request) =>
+    getTransactionVolume({
+      ...parseDateRange(request),
+      granularity: parseGranularity(request),
+      type: parseTransactionType(request),
+    })
+);

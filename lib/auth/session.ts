@@ -1,14 +1,9 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
-import { hasMinimumRole, type AdminRole } from "@/lib/permissions";
+import type { AdminIdentity, AdminRole } from "@/features/auth/contracts";
+import { hasMinimumRole } from "@/lib/permissions";
 
-export type { AdminRole } from "@/lib/permissions";
-
-export type AdminIdentity = {
-  id: string;
-  email: string;
-  role: AdminRole;
-};
+export type { AdminIdentity, AdminRole } from "@/features/auth/contracts";
 
 /**
  * Resolves the current request's admin identity, if any.
@@ -19,7 +14,7 @@ export type AdminIdentity = {
  * the admin_users RLS policy ("id = auth.uid() OR caller is an admin")
  * lets a signed-in user read their own row, so this path works even before
  * SUPABASE_SERVICE_ROLE_KEY is configured. Aggregate analytics queries in
- * lib/data/*.ts still require the service-role key — RLS correctly blocks
+ * Server-only feature query modules require the service-role key — RLS blocks
  * anon-key reads across other users' rows, and there's no way around that
  * without it.
  */

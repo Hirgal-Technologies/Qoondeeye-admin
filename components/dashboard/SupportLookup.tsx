@@ -3,15 +3,8 @@
 import { Search, ShieldAlert, UserRoundSearch } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { PageHeading } from "@/components/dashboard/PageHeading";
+import type { SupportUser } from "@/features/support/contracts";
 import { formatDateTime } from "@/lib/formatters";
-
-type SupportUser = {
-  id: string;
-  email: string;
-  createdAt: string;
-  lastSignInAt: string | null;
-  providers: string[];
-};
 
 export function SupportLookup() {
   const [userId, setUserId] = useState("");
@@ -66,7 +59,7 @@ export function SupportLookup() {
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-        <form onSubmit={onSubmit} className="rounded-lg border bg-card p-4 sm:p-5">
+        <form onSubmit={onSubmit} className="gradient-surface rounded-lg border p-4 sm:p-5">
           <div className="flex items-center gap-2">
             <UserRoundSearch aria-hidden="true" className="size-4 text-muted-foreground" />
             <h2 className="text-sm font-semibold">Account lookup</h2>
@@ -115,14 +108,14 @@ export function SupportLookup() {
           <button
             type="submit"
             disabled={loading || !permissionConfirmed || reason.trim().length < 20}
-            className="mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            className="gradient-button mt-5 inline-flex h-11 w-full items-center justify-center gap-2 rounded-md px-4 text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Search aria-hidden="true" className="size-4" />
             {loading ? "Recording access…" : "Record access and look up"}
           </button>
         </form>
 
-        <section className="rounded-lg border bg-card p-4 sm:p-5" aria-labelledby="lookup-result">
+        <section className="gradient-surface rounded-lg border p-4 sm:p-5" aria-labelledby="lookup-result">
           <h2 id="lookup-result" className="text-sm font-semibold">Read-only support details</h2>
           <p className="mt-1 text-xs text-muted-foreground">Identity and account-access metadata only.</p>
 

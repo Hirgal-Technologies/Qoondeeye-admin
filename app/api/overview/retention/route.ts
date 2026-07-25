@@ -1,12 +1,11 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { requireAdmin } from "@/lib/auth/require";
-import { getRetentionCurve } from "@/lib/data/overview";
+import { getRetentionCurve } from "@/features/analytics/overview/server/queries";
+import { createAdminGetHandler } from "@/lib/api/admin-route";
+import { parseBoundedInteger } from "@/lib/api/params";
 
-export async function GET(request: NextRequest) {
-  const { response } = await requireAdmin("viewer");
-  if (response) return response;
-
-  const cohortWindow = Number(request.nextUrl.searchParams.get("cohortWindow") ?? "30");
-  const data = await getRetentionCurve(cohortWindow);
-  return NextResponse.json({ data, error: null });
-}
+export const GET = createAdminGetHandler(
+  { operation: "overview.retention" },
+  (request) =>
+    getRetentionCurve(
+      parseBoundedInteger(request, "cohortWindow", 30, { min: 1, max: 365 })
+    )
+);

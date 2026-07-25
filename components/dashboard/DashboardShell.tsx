@@ -5,106 +5,32 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   Activity,
   Bell,
-  BookOpenCheck,
   CalendarDays,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleHelp,
   Command,
-  Download,
-  FileBarChart,
-  Headphones,
-  LayoutDashboard,
   Menu,
   Search,
   Settings,
   ShieldCheck,
-  Users,
-  WalletCards,
   X,
-  type LucideIcon,
 } from "lucide-react";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   DashboardFiltersProvider,
   type DateRangeDays,
   useDashboardFilters,
 } from "@/components/dashboard/DashboardFilters";
+import {
+  DASHBOARD_NAVIGATION,
+  dashboardPageTitle,
+  navigationForRole,
+  type DashboardNavItem,
+} from "@/components/dashboard/navigation";
 import { ThemeToggle } from "@/components/dashboard/ThemeToggle";
-import type { AdminIdentity, AdminRole } from "@/lib/auth/session";
-import { hasMinimumRole } from "@/lib/permissions";
-
-type NavItem = {
-  href: string;
-  label: string;
-  icon: LucideIcon;
-  minimumRole?: AdminRole;
-};
-
-type NavGroup = {
-  label: string;
-  items: NavItem[];
-};
-
-const NAVIGATION: NavGroup[] = [
-  {
-    label: "Analytics",
-    items: [
-      { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
-      { href: "/dashboard/users", label: "User analytics", icon: Users },
-      { href: "/dashboard/finance", label: "Financial activity", icon: WalletCards },
-      { href: "/dashboard/system", label: "System health", icon: Activity },
-    ],
-  },
-  {
-    label: "Operations",
-    items: [
-      { href: "/dashboard/reports", label: "Reports", icon: FileBarChart },
-      {
-        href: "/dashboard/exports",
-        label: "Data exports",
-        icon: Download,
-        minimumRole: "admin",
-      },
-      {
-        href: "/dashboard/support",
-        label: "Support tools",
-        icon: Headphones,
-        minimumRole: "support",
-      },
-      {
-        href: "/dashboard/audit",
-        label: "Audit logs",
-        icon: BookOpenCheck,
-        minimumRole: "admin",
-      },
-    ],
-  },
-  {
-    label: "Workspace",
-    items: [
-      { href: "/dashboard/settings", label: "Settings", icon: Settings },
-    ],
-  },
-];
-
-function canView(role: AdminRole, minimumRole: AdminRole = "viewer") {
-  return hasMinimumRole(role, minimumRole);
-}
-
-function pageTitle(pathname: string) {
-  return (
-    NAVIGATION.flatMap((group) => group.items).find((item) => item.href === pathname)
-      ?.label ?? "Dashboard"
-  );
-}
+import type { AdminIdentity } from "@/features/auth/contracts";
 
 export function DashboardShell({
   identity,
@@ -115,7 +41,9 @@ export function DashboardShell({
 }) {
   return (
     <DashboardFiltersProvider>
-      <DashboardShellContent identity={identity}>{children}</DashboardShellContent>
+      <DashboardShellContent identity={identity}>
+        {children}
+      </DashboardShellContent>
     </DashboardFiltersProvider>
   );
 }
@@ -136,11 +64,8 @@ function DashboardShellContent({
   const [profileOpen, setProfileOpen] = useState(false);
 
   const availableItems = useMemo(
-    () =>
-      NAVIGATION.flatMap((group) => group.items).filter((item) =>
-        canView(identity.role, item.minimumRole)
-      ),
-    [identity.role]
+    () => navigationForRole(identity.role),
+    [identity.role],
   );
 
   useEffect(() => {
@@ -180,11 +105,12 @@ function DashboardShellContent({
   }
 
   return (
-    <div className="flex min-h-screen bg-background text-foreground">
+    <div className="flex min-h-screen bg-transparent text-foreground">
       <aside
-        className={`sticky top-0 hidden h-screen shrink-0 flex-col border-r bg-card transition-[width] duration-200 lg:flex ${
+        className={`sticky top-0 hidden h-screen shrink-0 flex-col border-r transition-[width] duration-200 lg:flex ${
           collapsed ? "w-[72px]" : "w-64"
         }`}
+        style={{ background: "var(--gradient-sidebar)" }}
         aria-label="Primary navigation"
       >
         <SidebarContents
@@ -216,13 +142,14 @@ function DashboardShellContent({
             onClick={() => setMobileOpen(false)}
           />
           <aside
-            className="relative flex h-full w-[min(84vw,320px)] flex-col border-r bg-card shadow-2xl"
+            className="relative flex h-full w-[min(84vw,320px)] flex-col border-r shadow-2xl"
+            style={{ background: "var(--gradient-sidebar)" }}
             aria-label="Mobile navigation"
           >
             <button
               type="button"
               onClick={() => setMobileOpen(false)}
-              className="absolute right-3 top-3 grid size-11 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+              className="absolute right-3 top-3 grid size-11 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
               aria-label="Close navigation"
             >
               <X aria-hidden="true" className="size-5" />
@@ -238,11 +165,11 @@ function DashboardShellContent({
       ) : null}
 
       <div className="min-w-0 flex-1">
-        <header className="sticky top-0 z-40 flex h-16 items-center border-b bg-background/95 px-3 backdrop-blur supports-[backdrop-filter]:bg-background/85 sm:px-5 lg:px-6">
+        <header className="gradient-header sticky top-0 z-40 flex h-16 items-center border-b px-3 backdrop-blur sm:px-5 lg:px-6">
           <button
             type="button"
             onClick={() => setMobileOpen(true)}
-            className="mr-1 grid size-11 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground lg:hidden"
+            className="mr-1 grid size-11 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary lg:hidden"
             aria-label="Open navigation"
             aria-expanded={mobileOpen}
           >
@@ -253,7 +180,9 @@ function DashboardShellContent({
             <p className="hidden text-[11px] text-muted-foreground sm:block">
               Qoondeeye / Analytics
             </p>
-            <p className="truncate text-sm font-semibold">{pageTitle(pathname)}</p>
+            <p className="truncate text-sm font-semibold">
+              {dashboardPageTitle(pathname)}
+            </p>
           </div>
 
           <div className="ml-auto flex items-center gap-0.5 sm:gap-1">
@@ -262,17 +191,19 @@ function DashboardShellContent({
             <button
               type="button"
               onClick={() => setSearchOpen(true)}
-              className="hidden min-h-10 w-48 items-center gap-2 rounded-md border bg-card px-3 text-left text-xs text-muted-foreground transition-colors hover:bg-accent xl:flex"
+              className="hidden min-h-10 w-48 items-center gap-2 rounded-md border bg-card px-3 text-left text-xs text-muted-foreground transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-primary xl:flex"
               aria-label="Search dashboard"
             >
               <Search aria-hidden="true" className="size-4" />
               <span>Search dashboard</span>
-              <kbd className="ml-auto rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">/</kbd>
+              <kbd className="ml-auto rounded border bg-muted px-1.5 py-0.5 font-mono text-[10px]">
+                /
+              </kbd>
             </button>
             <button
               type="button"
               onClick={() => setSearchOpen(true)}
-              className="grid size-11 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground xl:hidden"
+              className="grid size-11 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary xl:hidden"
               aria-label="Search dashboard"
             >
               <Search aria-hidden="true" className="size-[18px]" />
@@ -287,7 +218,7 @@ function DashboardShellContent({
                   setNotificationsOpen((value) => !value);
                   setProfileOpen(false);
                 }}
-                className="relative grid size-11 place-items-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                className="relative grid size-11 place-items-center rounded-md text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
                 aria-label="Notifications, 1 unread"
                 aria-expanded={notificationsOpen}
               >
@@ -304,16 +235,23 @@ function DashboardShellContent({
                   setProfileOpen((value) => !value);
                   setNotificationsOpen(false);
                 }}
-                className="ml-0.5 flex min-h-11 items-center gap-2 rounded-md px-1.5 text-left transition-colors hover:bg-accent sm:px-2"
+                className="ml-0.5 flex min-h-11 items-center gap-2 rounded-md px-1.5 text-left transition-colors hover:bg-primary/10 sm:px-2"
                 aria-label="Open admin profile menu"
                 aria-expanded={profileOpen}
               >
                 <Avatar email={identity.email} />
                 <div className="hidden max-w-32 leading-tight md:block">
-                  <p className="truncate text-xs font-medium">{identity.email.split("@")[0]}</p>
-                  <p className="text-[10px] capitalize text-muted-foreground">{identity.role}</p>
+                  <p className="truncate text-xs font-medium">
+                    {identity.email.split("@")[0]}
+                  </p>
+                  <p className="text-[10px] capitalize text-muted-foreground">
+                    {identity.role}
+                  </p>
                 </div>
-                <ChevronDown aria-hidden="true" className="hidden size-3.5 text-muted-foreground md:block" />
+                <ChevronDown
+                  aria-hidden="true"
+                  className="hidden size-3.5 text-muted-foreground md:block"
+                />
               </button>
               {profileOpen ? (
                 <ProfilePopover identity={identity} onLogout={handleLogout} />
@@ -352,21 +290,29 @@ function SidebarContents({
   pathname: string;
   onNavigate: () => void;
 }) {
+  const visibleHrefs = new Set(
+    navigationForRole(identity.role).map((item) => item.href),
+  );
+
   return (
     <>
-      <div className={`flex h-16 items-center border-b ${collapsed ? "justify-center px-2" : "px-4"}`}>
+      <div
+        className={`flex h-16 items-center border-b ${collapsed ? "justify-center px-2" : "px-4"}`}
+      >
         <Link
           href="/dashboard"
           onClick={onNavigate}
           className="flex min-h-11 min-w-11 items-center gap-2.5 rounded-md"
           aria-label="Qoondeeye Admin overview"
         >
-          <span className="grid size-8 shrink-0 place-items-center rounded-md bg-primary text-sm font-bold text-primary-foreground">
+          <span className="brand-gradient grid size-8 shrink-0 place-items-center rounded-md text-sm font-bold text-primary-foreground">
             Q
           </span>
           {!collapsed ? (
             <span className="leading-tight">
-              <span className="block text-sm font-semibold tracking-tight">Qoondeeye</span>
+              <span className="block text-sm font-semibold tracking-tight">
+                Qoondeeye
+              </span>
               <span className="block text-[10px] uppercase tracking-[0.16em] text-muted-foreground">
                 Admin
               </span>
@@ -376,9 +322,9 @@ function SidebarContents({
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-4">
-        {NAVIGATION.map((group) => {
+        {DASHBOARD_NAVIGATION.map((group) => {
           const visibleItems = group.items.filter((item) =>
-            canView(identity.role, item.minimumRole)
+            visibleHrefs.has(item.href),
           );
           if (visibleItems.length === 0) return null;
           return (
@@ -394,26 +340,33 @@ function SidebarContents({
                 {visibleItems.map((item) => {
                   const active =
                     pathname === item.href ||
-                    (item.href !== "/dashboard" && pathname.startsWith(`${item.href}/`));
+                    (item.href !== "/dashboard" &&
+                      pathname.startsWith(`${item.href}/`));
                   const Icon = item.icon;
                   return (
                     <Link
                       aria-current={active ? "page" : undefined}
                       aria-label={collapsed ? item.label : undefined}
-                      className={`group relative flex min-h-10 items-center rounded-md text-sm transition-colors ${
+                      className={`group relative flex min-h-10 items-center rounded-md text-sm transition-all ${
                         collapsed ? "justify-center px-2" : "gap-3 px-2.5"
                       } ${
                         active
-                          ? "bg-primary text-primary-foreground"
-                          : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                          ? "gradient-button text-primary-foreground"
+                          : "text-muted-foreground hover:bg-primary/10 hover:text-primary"
                       }`}
                       href={item.href}
                       key={item.href}
                       onClick={onNavigate}
                       title={collapsed ? item.label : undefined}
                     >
-                      <Icon aria-hidden="true" className="size-[17px] shrink-0" strokeWidth={1.8} />
-                      {!collapsed ? <span className="truncate">{item.label}</span> : null}
+                      <Icon
+                        aria-hidden="true"
+                        className="size-[17px] shrink-0"
+                        strokeWidth={1.8}
+                      />
+                      {!collapsed ? (
+                        <span className="truncate">{item.label}</span>
+                      ) : null}
                     </Link>
                   );
                 })}
@@ -425,7 +378,7 @@ function SidebarContents({
 
       <div className="border-t p-2">
         <a
-          className={`flex min-h-10 items-center rounded-md text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground ${
+          className={`flex min-h-10 items-center rounded-md text-sm text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary ${
             collapsed ? "justify-center px-2" : "gap-3 px-2.5"
           }`}
           href="mailto:support@qoondeeye.com"
@@ -440,7 +393,7 @@ function SidebarContents({
 }
 
 function DateRangeControl() {
-  const { days, setDays } = useDashboardFilters();
+  const { days, isCustomRange, setDays } = useDashboardFilters();
   return (
     <label className="relative hidden sm:block">
       <span className="sr-only">Global date range</span>
@@ -449,13 +402,18 @@ function DateRangeControl() {
         className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
       />
       <select
-        value={days}
-        onChange={(event) => setDays(Number(event.target.value) as DateRangeDays)}
-        className="min-h-10 appearance-none rounded-md border bg-card pl-8 pr-8 text-xs font-medium text-foreground outline-none transition-colors hover:bg-accent"
+        value={isCustomRange ? "custom" : days}
+        onChange={(event) => {
+          if (event.target.value !== "custom") {
+            setDays(Number(event.target.value) as DateRangeDays);
+          }
+        }}
+        className="min-h-10 appearance-none rounded-md border bg-card pl-8 pr-8 text-xs font-medium text-foreground outline-none transition-colors hover:border-primary/30 hover:bg-primary/10"
       >
         <option value={7}>Last 7 days</option>
         <option value={30}>Last 30 days</option>
         <option value={90}>Last 90 days</option>
+        {isCustomRange ? <option value="custom">Custom range</option> : null}
       </select>
       <ChevronDown
         aria-hidden="true"
@@ -467,10 +425,15 @@ function DateRangeControl() {
 
 function NotificationsPopover() {
   return (
-    <div className="absolute right-0 top-12 z-50 w-[min(22rem,calc(100vw-1rem))] rounded-lg border bg-popover p-2 text-popover-foreground shadow-xl">
+    <div
+      className="absolute right-0 top-12 z-50 w-[min(22rem,calc(100vw-1rem))] rounded-lg border bg-popover p-2 text-popover-foreground"
+      style={{ boxShadow: "var(--shadow-dialog)" }}
+    >
       <div className="flex items-center justify-between px-2 py-2">
         <p className="text-sm font-semibold">Notifications</p>
-        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium">1 new</span>
+        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium">
+          1 new
+        </span>
       </div>
       <div className="rounded-md bg-muted/60 p-3">
         <div className="flex gap-3">
@@ -480,7 +443,8 @@ function NotificationsPopover() {
           <div>
             <p className="text-xs font-medium">Telemetry coverage incomplete</p>
             <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
-              Sync and OCR health will populate after mobile instrumentation is connected.
+              Sync and OCR health will populate after mobile instrumentation is
+              connected.
             </p>
           </div>
         </div>
@@ -497,7 +461,10 @@ function ProfilePopover({
   onLogout: () => void;
 }) {
   return (
-    <div className="absolute right-0 top-12 z-50 w-64 rounded-lg border bg-popover p-2 text-popover-foreground shadow-xl">
+    <div
+      className="absolute right-0 top-12 z-50 w-64 rounded-lg border bg-popover p-2 text-popover-foreground"
+      style={{ boxShadow: "var(--shadow-dialog)" }}
+    >
       <div className="flex items-center gap-3 border-b p-2 pb-3">
         <Avatar email={identity.email} />
         <div className="min-w-0">
@@ -510,7 +477,7 @@ function ProfilePopover({
       <div className="p-1 pt-2">
         <Link
           href="/dashboard/settings"
-          className="flex min-h-10 items-center gap-2 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="flex min-h-10 items-center gap-2 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
         >
           <Settings aria-hidden="true" className="size-4" />
           Account settings
@@ -518,7 +485,7 @@ function ProfilePopover({
         <button
           type="button"
           onClick={onLogout}
-          className="flex min-h-10 w-full items-center gap-2 rounded-md px-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+          className="flex min-h-10 w-full items-center gap-2 rounded-md px-2 text-xs text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
         >
           <ShieldCheck aria-hidden="true" className="size-4" />
           Secure log out
@@ -532,7 +499,7 @@ function Avatar({ email }: { email: string }) {
   const initials = email.slice(0, 2).toUpperCase();
   return (
     <span
-      className="grid size-8 shrink-0 place-items-center rounded-md bg-primary text-[10px] font-semibold text-primary-foreground"
+      className="brand-gradient grid size-8 shrink-0 place-items-center rounded-md text-[10px] font-semibold text-primary-foreground"
       aria-hidden="true"
     >
       {initials}
@@ -545,14 +512,14 @@ function CommandMenu({
   onClose,
   onSelect,
 }: {
-  items: NavItem[];
+  items: DashboardNavItem[];
   onClose: () => void;
   onSelect: (href: string) => void;
 }) {
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const filtered = items.filter((item) =>
-    item.label.toLowerCase().includes(query.trim().toLowerCase())
+    item.label.toLowerCase().includes(query.trim().toLowerCase()),
   );
 
   useEffect(() => {
@@ -596,11 +563,14 @@ function CommandMenu({
                   type="button"
                   key={item.href}
                   onClick={() => onSelect(item.href)}
-                  className="flex min-h-11 w-full items-center gap-3 rounded-md px-3 text-left text-sm text-muted-foreground hover:bg-accent hover:text-foreground"
+                  className="flex min-h-11 w-full items-center gap-3 rounded-md px-3 text-left text-sm text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary"
                 >
                   <Icon aria-hidden="true" className="size-4" />
                   <span>{item.label}</span>
-                  <Command aria-hidden="true" className="ml-auto size-3.5 opacity-40" />
+                  <Command
+                    aria-hidden="true"
+                    className="ml-auto size-3.5 opacity-40"
+                  />
                 </button>
               );
             })

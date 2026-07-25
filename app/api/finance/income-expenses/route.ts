@@ -1,14 +1,12 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { getIncomeExpenseTrend } from "@/features/analytics/finance/server/queries";
+import { createAdminGetHandler } from "@/lib/api/admin-route";
 import { parseDateRange, parseGranularity } from "@/lib/api/params";
-import { requireAdmin } from "@/lib/auth/require";
-import { getIncomeExpenseTrend } from "@/lib/data/finance";
 
-export async function GET(request: NextRequest) {
-  const { response } = await requireAdmin("viewer");
-  if (response) return response;
-
-  const { from, to } = parseDateRange(request);
-  const granularity = parseGranularity(request);
-  const data = await getIncomeExpenseTrend({ from, to, granularity });
-  return NextResponse.json({ data, error: null });
-}
+export const GET = createAdminGetHandler(
+  { operation: "finance.income-expenses" },
+  (request) =>
+    getIncomeExpenseTrend({
+      ...parseDateRange(request),
+      granularity: parseGranularity(request),
+    })
+);

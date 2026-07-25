@@ -1,4 +1,6 @@
-export type AdminRole = "admin" | "support" | "viewer";
+import type { AdminRole } from "@/features/auth/contracts";
+
+export type { AdminRole } from "@/features/auth/contracts";
 
 const ROLE_RANK: Record<AdminRole, number> = {
   viewer: 0,

@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireAdmin } from "@/lib/auth/require";
 import { exportRegistry, PER_USER_SOURCES, type ExportSource } from "@/lib/api/export-registry";
 import { rowsToCsv } from "@/lib/csv";
-import { writeAuditLog } from "@/lib/data/audit";
+import { writeAuditLog } from "@/features/audit/server/audit-repository";
 
 export async function GET(request: NextRequest) {
   const { identity, response } = await requireAdmin("viewer");
@@ -17,7 +17,13 @@ export async function GET(request: NextRequest) {
   const csv = rowsToCsv(rows);
 
   if (PER_USER_SOURCES.has(source)) {
-    await writeAuditLog({ actorId: identity!.id, action: "csv_export", metadata: { source } });
+    await writeAuditLog({
+      actorId: identity!.id,
+      actorEmail: identity!.email,
+      actorRole: identity!.role,
+      action: "csv_export",
+      metadata: { source },
+    });
   }
 
   return new NextResponse(csv, {

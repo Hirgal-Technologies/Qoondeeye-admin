@@ -1,14 +1,15 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { requireAdmin } from "@/lib/auth/require";
-import { getRecentErrors } from "@/lib/data/system";
-import { parseDateRange } from "@/lib/api/params";
+import { getRecentErrors } from "@/features/analytics/system/server/queries";
+import { createAdminGetHandler } from "@/lib/api/admin-route";
+import { parseBoundedInteger, parseDateRange } from "@/lib/api/params";
 
-export async function GET(request: NextRequest) {
-  const { response } = await requireAdmin("viewer");
-  if (response) return response;
-
-  const { from, to } = parseDateRange(request);
-  const limit = Number(request.nextUrl.searchParams.get("limit") ?? "100");
-  const data = await getRecentErrors({ from, to, limit });
-  return NextResponse.json({ data, error: null });
-}
+export const GET = createAdminGetHandler(
+  { operation: "system.errors" },
+  (request) =>
+    getRecentErrors({
+      ...parseDateRange(request),
+      limit: parseBoundedInteger(request, "limit", 100, {
+        min: 1,
+        max: 500,
+      }),
+    })
+);

@@ -9,6 +9,14 @@ const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
  * from server-side code (Route Handlers, data-access functions). Never send
  * this client, or the key it holds, to the browser.
  */
+function buildAdminClient(serviceRoleKey: string) {
+  return createSupabaseClient(SUPABASE_URL, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+}
+
+let cachedClient: ReturnType<typeof buildAdminClient> | null = null;
+
 export function createAdminClient() {
   if (!SERVICE_ROLE_KEY) {
     throw new Error(
@@ -16,7 +24,9 @@ export function createAdminClient() {
     );
   }
 
-  return createSupabaseClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
-    auth: { autoRefreshToken: false, persistSession: false },
-  });
+  // The service-role client is stateless (no session persistence), so one
+  // instance can be shared by every request in the process instead of paying
+  // client construction on each query.
+  cachedClient ??= buildAdminClient(SERVICE_ROLE_KEY);
+  return cachedClient;
 }

@@ -1,11 +1,7 @@
-import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth/require";
-import { getOverviewSummary } from "@/lib/data/overview";
+import { getOverviewSummary } from "@/features/analytics/overview/server/queries";
+import { createAdminGetHandler } from "@/lib/api/admin-route";
 
-export async function GET() {
-  const { response } = await requireAdmin("viewer");
-  if (response) return response;
-
-  const data = await getOverviewSummary();
-  return NextResponse.json({ data, error: null });
-}
+export const GET = createAdminGetHandler(
+  { operation: "overview.summary" },
+  getOverviewSummary
+);

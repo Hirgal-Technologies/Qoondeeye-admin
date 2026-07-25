@@ -39,7 +39,7 @@ export function ChartCard<T>({
 
   return (
     <section
-      className={`flex min-w-0 flex-col rounded-lg border bg-card p-4 text-card-foreground shadow-[var(--shadow-card)] sm:p-5 ${className}`}
+      className={`gradient-surface flex min-w-0 flex-col rounded-lg border p-4 text-card-foreground shadow-[var(--shadow-card)] sm:p-5 ${className}`}
       aria-labelledby={`${toId(title)}-title`}
     >
       <div className="flex min-h-10 items-start justify-between gap-3">

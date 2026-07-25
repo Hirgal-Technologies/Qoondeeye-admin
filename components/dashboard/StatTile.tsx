@@ -45,7 +45,11 @@ export function StatTile({
   const TrendIcon = change ? trendIcons[change.direction] : null;
 
   return (
-    <article className="min-w-0 rounded-lg border bg-card p-4 text-card-foreground shadow-[var(--shadow-card)]">
+    <article
+      className={`relative min-w-0 overflow-hidden rounded-lg border p-4 text-card-foreground shadow-[var(--shadow-card)] ${
+        status === "critical" ? "gradient-kpi-critical" : "gradient-kpi"
+      }`}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2 text-xs font-medium text-muted-foreground">
           {Icon ? <Icon aria-hidden="true" className="size-3.5 shrink-0" /> : null}

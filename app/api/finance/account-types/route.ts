@@ -1,11 +1,7 @@
-import { NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth/require";
-import { getAccountTypeDistribution } from "@/lib/data/finance";
+import { getAccountTypeDistribution } from "@/features/analytics/finance/server/queries";
+import { createAdminGetHandler } from "@/lib/api/admin-route";
 
-export async function GET() {
-  const { response } = await requireAdmin("viewer");
-  if (response) return response;
-
-  const data = await getAccountTypeDistribution();
-  return NextResponse.json({ data, error: null });
-}
+export const GET = createAdminGetHandler(
+  { operation: "finance.account-types" },
+  getAccountTypeDistribution
+);

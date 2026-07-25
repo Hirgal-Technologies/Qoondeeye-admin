@@ -4,7 +4,7 @@ import { Download, Search, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
 import { PageHeading } from "@/components/dashboard/PageHeading";
 import { StatePanel } from "@/components/states/StatePanel";
-import type { AuditLogRow } from "@/lib/data/audit";
+import type { AuditLogRow } from "@/features/audit/contracts";
 import { formatDateTime } from "@/lib/formatters";
 import { useApiData } from "@/lib/hooks/useApiData";
 
@@ -93,11 +93,11 @@ export function AuditLogTable() {
             />
           ) : null}
           {filtered.length > 0 ? (
-            <div className="overflow-x-auto">
+            <div className="max-h-[32rem] overflow-auto rounded-md border">
               <table className="w-full min-w-[820px] text-left text-xs">
                 <caption className="sr-only">Administrator audit events</caption>
-                <thead>
-                  <tr className="border-b text-muted-foreground">
+                <thead className="sticky top-0 z-10">
+                  <tr className="border-b bg-[hsl(var(--surface-table-head))] text-muted-foreground">
                     <th scope="col" className="px-3 py-2.5 font-medium">Admin</th>
                     <th scope="col" className="px-3 py-2.5 font-medium">Role</th>
                     <th scope="col" className="px-3 py-2.5 font-medium">Action</th>
@@ -107,8 +107,13 @@ export function AuditLogTable() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.map((row) => (
-                    <tr key={row.id} className="border-b last:border-0">
+                  {filtered.map((row, index) => (
+                    <tr
+                      key={row.id}
+                      className={`border-b transition-colors last:border-0 hover:bg-[hsl(var(--surface-table-hover))] ${
+                        index % 2 === 1 ? "bg-[hsl(var(--surface-table-row-alt))]" : ""
+                      }`}
+                    >
                       <td className="px-3 py-3 font-medium">{row.actorEmail}</td>
                       <td className="px-3 py-3 capitalize text-muted-foreground">{row.actorRole}</td>
                       <td className="px-3 py-3">{row.action.replace(/_/g, " ")}</td>
@@ -117,10 +122,16 @@ export function AuditLogTable() {
                         {formatDateTime(row.createdAt)}
                       </td>
                       <td className="px-3 py-3">
-                        <span className="inline-flex items-center gap-1.5 rounded-full bg-muted px-2 py-1 text-[10px] font-medium">
-                          <ShieldCheck aria-hidden="true" className="size-3" />
-                          {row.outcome}
-                        </span>
+                        {row.outcome.toLowerCase() === "completed" ? (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-success-muted px-2 py-1 text-[10px] font-medium text-success">
+                            <ShieldCheck aria-hidden="true" className="size-3" />
+                            {row.outcome}
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1.5 rounded-full bg-neutral-muted px-2 py-1 text-[10px] font-medium text-neutral">
+                            {row.outcome}
+                          </span>
+                        )}
                       </td>
                     </tr>
                   ))}

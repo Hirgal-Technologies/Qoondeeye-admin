@@ -1,15 +1,11 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { requireAdmin } from "@/lib/auth/require";
-import { getAuditLogs } from "@/lib/data/audit";
+import { getAuditLogs } from "@/features/audit/server/audit-repository";
+import { createAdminGetHandler } from "@/lib/api/admin-route";
+import { parseBoundedInteger } from "@/lib/api/params";
 
-export async function GET(request: NextRequest) {
-  const { response } = await requireAdmin("admin");
-  if (response) return response;
-
-  const requestedLimit = Number(request.nextUrl.searchParams.get("limit") ?? "100");
-  const limit = Number.isFinite(requestedLimit)
-    ? Math.min(Math.max(requestedLimit, 1), 500)
-    : 100;
-  const data = await getAuditLogs(limit);
-  return NextResponse.json({ data, error: null });
-}
+export const GET = createAdminGetHandler(
+  { operation: "audit.logs", minimumRole: "admin", cacheTtlMs: 0 },
+  (request) =>
+    getAuditLogs(
+      parseBoundedInteger(request, "limit", 100, { min: 1, max: 500 })
+    )
+);

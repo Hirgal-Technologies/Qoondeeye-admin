@@ -1,12 +1,11 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { requireAdmin } from "@/lib/auth/require";
-import { getChurn } from "@/lib/data/users";
+import { getChurn } from "@/features/analytics/users/server/queries";
+import { createAdminGetHandler } from "@/lib/api/admin-route";
+import { parseBoundedInteger } from "@/lib/api/params";
 
-export async function GET(request: NextRequest) {
-  const { response } = await requireAdmin("viewer");
-  if (response) return response;
-
-  const inactiveDays = Number(request.nextUrl.searchParams.get("inactiveDays") ?? "30");
-  const data = await getChurn(inactiveDays);
-  return NextResponse.json({ data, error: null });
-}
+export const GET = createAdminGetHandler(
+  { operation: "users.churn" },
+  (request) =>
+    getChurn(
+      parseBoundedInteger(request, "inactiveDays", 30, { min: 1, max: 365 })
+    )
+);

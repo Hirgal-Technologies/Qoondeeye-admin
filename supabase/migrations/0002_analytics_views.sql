@@ -17,9 +17,9 @@
 --                                 amount, period_start, period_end, spent, status)
 --                                 — already tracks limit (amount) vs spent per period.
 --
--- lib/data/*.ts currently queries these tables directly (not these views).
--- These views exist for the Phase 1.2 rollup-table plan; wire them in if/when
--- live-query performance becomes a problem.
+-- Feature analytics queries prefer live tables + the RPCs/rollup in
+-- 0004_analytics_performance.sql. These views remain available for ad-hoc
+-- SQL and future finance query rewrites.
 
 create or replace view public.mv_daily_signups as
 select

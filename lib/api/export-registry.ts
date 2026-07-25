@@ -1,22 +1,32 @@
 import "server-only";
 import type { NextRequest } from "next/server";
-import { parseDateRange, parseGranularity } from "@/lib/api/params";
-import { getRetentionCurve } from "@/lib/data/overview";
+import {
+  parseBoundedInteger,
+  parseDateRange,
+  parseGranularity,
+  parseTransactionType,
+} from "@/lib/api/params";
+import { getRetentionCurve } from "@/features/analytics/overview/server/queries";
 import {
   getAuthMethodBreakdown,
   getChurn,
   getCohortRetention,
   getSignupTrend,
-} from "@/lib/data/users";
+} from "@/features/analytics/users/server/queries";
 import {
   getAccountTypeDistribution,
   getBudgetAdherence,
   getCategoryDistribution,
   getSubscriptionsLoansSummary,
   getTransactionVolume,
-} from "@/lib/data/finance";
-import { getOcrSuccessRate, getRecentErrors, getSyncHealth } from "@/lib/data/system";
-import type { TxType } from "@/lib/data/types";
+} from "@/features/analytics/finance/server/queries";
+import {
+  getAlertsTrend,
+  getOcrSuccessRate,
+  getRecentErrors,
+  getSyncHealth,
+  getTableCounts,
+} from "@/features/analytics/system/server/queries";
 
 export type ExportSource = keyof typeof exportRegistry;
 
@@ -31,7 +41,12 @@ function asRows(data: unknown): Record<string, unknown>[] {
 
 export const exportRegistry = {
   "overview/retention": async (request: NextRequest) => {
-    const cohortWindow = Number(request.nextUrl.searchParams.get("cohortWindow") ?? "30");
+    const cohortWindow = parseBoundedInteger(
+      request,
+      "cohortWindow",
+      30,
+      { min: 1, max: 365 }
+    );
     return asRows(await getRetentionCurve(cohortWindow));
   },
   "users/signups": async (request: NextRequest) => {
@@ -45,17 +60,18 @@ export const exportRegistry = {
     return asRows(await getCohortRetention({ from, to }));
   },
   "users/churn": async (request: NextRequest) => {
-    const inactiveDays = Number(request.nextUrl.searchParams.get("inactiveDays") ?? "30");
+    const inactiveDays = parseBoundedInteger(
+      request,
+      "inactiveDays",
+      30,
+      { min: 1, max: 365 }
+    );
     return asRows(await getChurn(inactiveDays));
   },
   "finance/transaction-volume": async (request: NextRequest) => {
     const { from, to } = parseDateRange(request);
     const granularity = parseGranularity(request);
-    const typeParam = request.nextUrl.searchParams.get("type");
-    const type =
-      typeParam === "expense" || typeParam === "income" || typeParam === "transfer"
-        ? (typeParam as TxType)
-        : undefined;
+    const type = parseTransactionType(request);
     return asRows(await getTransactionVolume({ from, to, granularity, type }));
   },
   "finance/category-distribution": async (request: NextRequest) => {
@@ -77,9 +93,19 @@ export const exportRegistry = {
     const { from, to } = parseDateRange(request);
     return asRows(await getOcrSuccessRate({ from, to }));
   },
+  "system/alerts-trend": async (request: NextRequest) => {
+    const { from, to } = parseDateRange(request);
+    return asRows(await getAlertsTrend({ from, to }));
+  },
+  "system/table-counts": async () => asRows(await getTableCounts()),
   "system/errors": async (request: NextRequest) => {
     const { from, to } = parseDateRange(request);
-    const limit = Number(request.nextUrl.searchParams.get("limit") ?? "100");
+    const limit = parseBoundedInteger(
+      request,
+      "limit",
+      100,
+      { min: 1, max: 500 }
+    );
     return asRows(await getRecentErrors({ from, to, limit }));
   },
 } as const;

@@ -46,7 +46,7 @@ export function StatePanel({
         <button
           type="button"
           onClick={onAction}
-          className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-md border bg-background px-3 text-xs font-medium text-foreground transition-colors hover:bg-accent"
+          className="mt-4 inline-flex min-h-10 items-center gap-2 rounded-md border bg-background px-3 text-xs font-medium text-foreground transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-primary"
         >
           <RotateCcw aria-hidden="true" className="size-3.5" />
           {actionLabel}
