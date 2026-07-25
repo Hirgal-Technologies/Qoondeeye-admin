@@ -59,19 +59,19 @@ test("custom calendar range includes both boundary dates", () => {
 
 test("support lookup validation normalizes valid input and rejects unsafe requests", () => {
   const valid = parseSupportLookupInput({
-    userId: "8a3d24d0-42aa-4d65-9a5f-a954f34bf727",
+    identifier: "8a3d24d0-42aa-4d65-9a5f-a954f34bf727",
     reason: "  Customer approved account access for a billing investigation.  ",
     permissionConfirmed: true,
   });
 
   assert.deepEqual(valid, {
-    userId: "8a3d24d0-42aa-4d65-9a5f-a954f34bf727",
+    identifier: "8a3d24d0-42aa-4d65-9a5f-a954f34bf727",
     reason: "Customer approved account access for a billing investigation.",
     permissionConfirmed: true,
   });
   assert.equal(
     parseSupportLookupInput({
-      userId: "not-a-user-id",
+      identifier: "not-a-user-id",
       reason: "Too short",
       permissionConfirmed: false,
     }),
