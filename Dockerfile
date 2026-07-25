@@ -22,7 +22,8 @@ COPY . .
 
 ENV NEXT_TELEMETRY_DISABLED=1
 
-RUN pnpm build
+RUN --mount=type=cache,id=nextcache,target=/app/.next/cache \
+    pnpm build
 
 FROM base AS runner
 
