@@ -36,7 +36,7 @@ type SyncPoint = {
   failures: number;
 };
 
-export function OverviewPage() {
+export function OverviewPage({ hasSupportRole }: { hasSupportRole: boolean }) {
   const { days, rangeLabel, withDateRange } = useDashboardFilters();
   const summary = useApiData<OverviewSummary>("/api/overview/summary");
   const retention = useApiData<RetentionPoint[]>(
@@ -55,6 +55,8 @@ export function OverviewPage() {
       ? sync.data.reduce((total, point) => total + point.successRate, 0) /
         sync.data.length
       : undefined;
+  const newUsersHref = hasSupportRole ? "/dashboard/new-users" : undefined;
+  const activeUsersHref = hasSupportRole ? "/dashboard/active-users" : undefined;
 
   return (
     <div className="flex flex-col gap-6 lg:gap-7">
@@ -103,6 +105,8 @@ export function OverviewPage() {
             tooltip="New profiles created in the last 30 days."
             isLoading={loading}
             error={summaryError}
+            href={newUsersHref}
+            linkLabel="View the new signups roster"
           />
           <StatTile
             icon={Activity}
@@ -112,6 +116,8 @@ export function OverviewPage() {
             tooltip="Distinct users who recorded ledger activity in the last day. Session telemetry is not yet connected."
             isLoading={loading}
             error={summaryError}
+            href={activeUsersHref}
+            linkLabel="View the active users roster"
           />
           <StatTile
             icon={Users}
@@ -121,6 +127,8 @@ export function OverviewPage() {
             tooltip="Distinct users who recorded ledger activity in the last 30 days."
             isLoading={loading}
             error={summaryError}
+            href={activeUsersHref}
+            linkLabel="View the active users roster"
           />
           <StatTile
             icon={Repeat2}

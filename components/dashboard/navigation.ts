@@ -7,6 +7,8 @@ import {
   LayoutDashboard,
   Settings,
   ShieldUser,
+  UserCheck,
+  UserPlus,
   Users,
   WalletCards,
   type LucideIcon,
@@ -32,6 +34,18 @@ export const DASHBOARD_NAVIGATION: DashboardNavGroup[] = [
     items: [
       { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
       { href: "/dashboard/users", label: "User analytics", icon: Users },
+      {
+        href: "/dashboard/new-users",
+        label: "New signups",
+        icon: UserPlus,
+        minimumRole: "support",
+      },
+      {
+        href: "/dashboard/active-users",
+        label: "Active users",
+        icon: UserCheck,
+        minimumRole: "support",
+      },
       { href: "/dashboard/finance", label: "Financial activity", icon: WalletCards },
       { href: "/dashboard/system", label: "System health", icon: Activity },
     ],
