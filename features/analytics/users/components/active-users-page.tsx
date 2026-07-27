@@ -46,7 +46,7 @@ const columns: RosterColumn<ActiveUserRow>[] = [
   },
   {
     key: "entries",
-    header: "Ledger entries",
+    header: "Transactions",
     className: "tabular-nums",
     render: (row) => formatInteger.format(row.entries),
   },
