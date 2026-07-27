@@ -1,7 +1,9 @@
+import Link from "next/link";
 import {
   ArrowDownRight,
   ArrowRight,
   ArrowUpRight,
+  ChevronRight,
   CircleAlert,
   Info,
   type LucideIcon,
@@ -23,6 +25,10 @@ type StatTileProps = {
   status?: "default" | "critical";
   isLoading?: boolean;
   error?: string | null;
+  /** Turns the whole tile into a link to a detail page. */
+  href?: string;
+  /** Accessible name for the tile link; defaults to "View <label>". */
+  linkLabel?: string;
 };
 
 const trendIcons = {
@@ -41,13 +47,19 @@ export function StatTile({
   status = "default",
   isLoading = false,
   error = null,
+  href,
+  linkLabel,
 }: StatTileProps) {
   const TrendIcon = change ? trendIcons[change.direction] : null;
 
   return (
     <article
-      className={`relative min-w-0 overflow-hidden rounded-lg border p-4 text-card-foreground shadow-[var(--shadow-card)] ${
+      className={`group/tile relative min-w-0 overflow-hidden rounded-lg border p-4 text-card-foreground shadow-[var(--shadow-card)] ${
         status === "critical" ? "gradient-kpi-critical" : "gradient-kpi"
+      } ${
+        href
+          ? "transition-colors hover:border-primary/40 focus-within:border-primary/40"
+          : ""
       }`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -55,7 +67,8 @@ export function StatTile({
           {Icon ? <Icon aria-hidden="true" className="size-3.5 shrink-0" /> : null}
           <span className="truncate">{label}</span>
           {tooltip ? (
-            <span className="group relative shrink-0" tabIndex={0}>
+            // z-20 keeps the tooltip trigger hoverable above the tile-wide link overlay.
+            <span className="group relative z-20 shrink-0" tabIndex={0}>
               <Info aria-label={`About ${label}`} className="size-3.5" />
               <span
                 role="tooltip"
@@ -68,6 +81,11 @@ export function StatTile({
         </div>
         {status === "critical" ? (
           <CircleAlert aria-label="Critical metric" className="size-4 shrink-0 text-destructive" />
+        ) : href ? (
+          <ChevronRight
+            aria-hidden="true"
+            className="size-4 shrink-0 text-muted-foreground transition-transform group-hover/tile:translate-x-0.5 group-hover/tile:text-primary"
+          />
         ) : null}
       </div>
 
@@ -101,6 +119,15 @@ export function StatTile({
           </div>
         </>
       )}
+
+      {href ? (
+        <Link
+          href={href}
+          className="absolute inset-0 z-10 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        >
+          <span className="sr-only">{linkLabel ?? `View ${label}`}</span>
+        </Link>
+      ) : null}
     </article>
   );
 }

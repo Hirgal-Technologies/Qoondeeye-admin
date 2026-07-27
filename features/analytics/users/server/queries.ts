@@ -4,7 +4,12 @@ import type {
   DateRangeParams,
   Granularity,
 } from "@/features/analytics/shared/contracts";
-import type { CohortRetentionRow } from "@/features/analytics/users/contracts";
+import type {
+  ActiveUserRow,
+  ActiveUsersList,
+  CohortRetentionRow,
+  NewUsersList,
+} from "@/features/analytics/users/contracts";
 
 function truncKey(iso: string, granularity: Granularity) {
   const d = new Date(iso);
@@ -134,6 +139,135 @@ export async function getCohortRetention(params: DateRangeParams): Promise<Cohor
     rows.push(row);
   }
   return rows;
+}
+
+/**
+ * Newest profiles created in the range, plus the exact total for the range.
+ * The total comes from a `head` count so it stays accurate no matter how
+ * small `limit` is.
+ */
+export async function getNewUsers(
+  params: DateRangeParams & { limit: number }
+): Promise<NewUsersList> {
+  const db = createAdminClient();
+  const { data, count } = await db
+    .from("profiles")
+    .select("id, email, full_name, user_type, created_at", { count: "exact" })
+    .gte("created_at", params.from)
+    .lte("created_at", params.to)
+    .order("created_at", { ascending: false })
+    .limit(params.limit);
+
+  const users = (data ?? []).map((row) => ({
+    id: String(row.id),
+    email: row.email ? String(row.email) : "Unavailable",
+    fullName: row.full_name ? String(row.full_name) : null,
+    userType: row.user_type ? String(row.user_type) : null,
+    createdAt: String(row.created_at),
+  }));
+
+  return { total: count ?? users.length, users };
+}
+
+/**
+ * PostgREST caps a single `select` at ~1000 rows, so a range scan of the
+ * ledger has to be paged explicitly or the roster silently truncates.
+ * MAX_PAGES bounds the work for very large windows.
+ */
+const LEDGER_PAGE_SIZE = 1000;
+const LEDGER_MAX_PAGES = 50;
+
+type LedgerRow = { user_id: string; date: string; amount: number | string | null };
+
+async function readLedgerRange(from: string, to: string): Promise<LedgerRow[]> {
+  const db = createAdminClient();
+  const rows: LedgerRow[] = [];
+
+  for (let page = 0; page < LEDGER_MAX_PAGES; page++) {
+    const start = page * LEDGER_PAGE_SIZE;
+    const { data, error } = await db
+      .from("expenses")
+      .select("user_id, date, amount")
+      .gte("date", from)
+      .lte("date", to)
+      .order("date", { ascending: true })
+      .range(start, start + LEDGER_PAGE_SIZE - 1);
+
+    if (error) throw error;
+    const batch = (data ?? []) as LedgerRow[];
+    rows.push(...batch);
+    if (batch.length < LEDGER_PAGE_SIZE) break;
+  }
+
+  return rows;
+}
+
+/**
+ * Users with ledger activity in the range, ranked by most recent activity.
+ * Ledger activity is the same engagement proxy the overview DAU/MAU trend
+ * uses — there is no session telemetry yet.
+ */
+export async function getActiveUsers(
+  params: DateRangeParams & { limit: number }
+): Promise<ActiveUsersList> {
+  const from = params.from.slice(0, 10);
+  const to = params.to.slice(0, 10);
+  const ledger = await readLedgerRange(from, to);
+
+  type Aggregate = { entries: number; volume: number; lastActiveAt: string };
+  const byUser = new Map<string, Aggregate>();
+  for (const row of ledger) {
+    if (!row.user_id) continue;
+    const date = String(row.date).slice(0, 10);
+    const current = byUser.get(row.user_id) ?? {
+      entries: 0,
+      volume: 0,
+      lastActiveAt: date,
+    };
+    current.entries += 1;
+    current.volume += Number(row.amount ?? 0);
+    if (date > current.lastActiveAt) current.lastActiveAt = date;
+    byUser.set(row.user_id, current);
+  }
+
+  const ranked = [...byUser.entries()]
+    .sort(
+      ([, a], [, b]) =>
+        b.lastActiveAt.localeCompare(a.lastActiveAt) || b.entries - a.entries
+    )
+    .slice(0, params.limit);
+
+  const db = createAdminClient();
+  const { data: profiles } = await db
+    .from("profiles")
+    .select("id, email, full_name, created_at")
+    .in(
+      "id",
+      ranked.map(([id]) => id)
+    );
+
+  const profileById = new Map(
+    (profiles ?? []).map((row) => [String(row.id), row])
+  );
+
+  const users: ActiveUserRow[] = ranked.map(([id, aggregate]) => {
+    const profile = profileById.get(id);
+    return {
+      id,
+      email: profile?.email ? String(profile.email) : "Unavailable",
+      fullName: profile?.full_name ? String(profile.full_name) : null,
+      createdAt: profile?.created_at ? String(profile.created_at) : null,
+      lastActiveAt: aggregate.lastActiveAt,
+      entries: aggregate.entries,
+      volume: aggregate.volume,
+    };
+  });
+
+  return {
+    totalActive: byUser.size,
+    totalEntries: ledger.length,
+    users,
+  };
 }
 
 export async function getChurn(
