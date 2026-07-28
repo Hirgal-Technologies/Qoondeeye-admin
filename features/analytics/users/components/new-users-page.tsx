@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { CalendarClock, TrendingUp, UserPlus, Users } from "lucide-react";
 import { useCallback } from "react";
 import { LineTrendChart } from "@/components/charts/lazy";
@@ -27,7 +28,16 @@ const columns: RosterColumn<NewUserRow>[] = [
     key: "name",
     header: "Name",
     className: "font-medium",
-    render: (row) => row.fullName ?? "—",
+    render: (row) => (
+      <Link
+        href={`/dashboard/transactions/users/${row.id}`}
+        prefetch={false}
+        className="rounded-sm underline-offset-4 hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
+        aria-label={`View details for ${row.fullName ?? row.email}`}
+      >
+        {row.fullName ?? "Unnamed user"}
+      </Link>
+    ),
   },
   {
     key: "email",

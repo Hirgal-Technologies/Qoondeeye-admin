@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { BrandMark } from "@/components/brand/BrandMark";
 import {
   DashboardFiltersProvider,
   type DateRangeDays,
@@ -305,9 +306,7 @@ function SidebarContents({
           className="flex min-h-11 min-w-11 items-center gap-2.5 rounded-md"
           aria-label="Qoondeeye Admin overview"
         >
-          <span className="brand-gradient grid size-8 shrink-0 place-items-center rounded-md text-sm font-bold text-primary-foreground">
-            Q
-          </span>
+          <BrandMark size={32} className="ring-1 ring-border" />
           {!collapsed ? (
             <span className="leading-tight">
               <span className="block text-sm font-semibold tracking-tight">

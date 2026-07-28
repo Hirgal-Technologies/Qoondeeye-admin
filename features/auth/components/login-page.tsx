@@ -1,8 +1,9 @@
 "use client";
 
-import { ArrowRight, BarChart3, LockKeyhole, ShieldCheck } from "lucide-react";
+import { ArrowRight, LockKeyhole, ShieldCheck } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
+import { BrandMark } from "@/components/brand/BrandMark";
 import { ThemeToggle } from "@/components/dashboard/ThemeToggle";
 
 export function LoginPage() {
@@ -48,9 +49,7 @@ export function LoginPage() {
 
       <section className="brand-panel relative hidden overflow-hidden border-r p-10 text-primary-foreground lg:flex lg:flex-col lg:justify-between xl:p-14">
         <div className="flex items-center gap-3">
-          <span className="grid size-9 place-items-center rounded-md border border-primary-foreground/20 bg-primary-foreground text-sm font-bold text-primary">
-            Q
-          </span>
+          <BrandMark size={36} priority className="ring-1 ring-primary-foreground/15" />
           <div>
             <p className="text-sm font-semibold">Qoondeeye</p>
             <p className="text-[10px] uppercase tracking-[0.18em] opacity-60">Admin analytics</p>
@@ -58,9 +57,7 @@ export function LoginPage() {
         </div>
 
         <div className="max-w-xl">
-          <span className="mb-6 grid size-10 place-items-center rounded-md border border-primary-foreground/20">
-            <BarChart3 aria-hidden="true" className="size-5" />
-          </span>
+          <BrandMark size={72} priority className="mb-6 ring-1 ring-primary-foreground/15" />
           <h1 className="max-w-lg text-4xl font-semibold leading-[1.12] tracking-[-0.04em] xl:text-5xl">
             Clear decisions, grounded in trustworthy data.
           </h1>
@@ -78,10 +75,8 @@ export function LoginPage() {
 
       <section className="flex items-center justify-center px-5 py-16 sm:px-8">
         <div className="w-full max-w-sm">
-          <div className="mb-9 flex items-center gap-3 lg:hidden">
-            <span className="brand-gradient grid size-9 place-items-center rounded-md text-sm font-bold text-primary-foreground">
-              Q
-            </span>
+          <div className="mb-9 flex items-center gap-3">
+            <BrandMark size={36} priority className="ring-1 ring-border" />
             <div>
               <p className="text-sm font-semibold">Qoondeeye</p>
               <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
