@@ -5,6 +5,7 @@ import {
   FileBarChart,
   Headphones,
   LayoutDashboard,
+  ReceiptText,
   Settings,
   ShieldUser,
   UserCheck,
@@ -53,6 +54,12 @@ export const DASHBOARD_NAVIGATION: DashboardNavGroup[] = [
   {
     label: "Operations",
     items: [
+      {
+        href: "/dashboard/transactions",
+        label: "Transactions",
+        icon: ReceiptText,
+        minimumRole: "admin",
+      },
       { href: "/dashboard/reports", label: "Reports", icon: FileBarChart },
       {
         href: "/dashboard/exports",
@@ -95,9 +102,15 @@ export function navigationForRole(role: AdminRole) {
 }
 
 export function dashboardPageTitle(pathname: string) {
+  const items = DASHBOARD_NAVIGATION.flatMap((group) => group.items);
   return (
-    DASHBOARD_NAVIGATION.flatMap((group) => group.items).find(
-      (item) => item.href === pathname
-    )?.label ?? "Dashboard"
+    items
+      .sort((a, b) => b.href.length - a.href.length)
+      .find(
+        (item) =>
+          item.href === pathname ||
+          (item.href !== "/dashboard" &&
+            pathname.startsWith(`${item.href}/`)),
+      )?.label ?? "Dashboard"
   );
 }

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowLeft, Compass } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
+import { BrandMark } from "@/components/brand/BrandMark";
 
 export const metadata: Metadata = {
   title: "Page not found",
@@ -10,9 +11,7 @@ export default function NotFound() {
   return (
     <main className="grid min-h-screen place-items-center px-5 py-16">
       <div className="w-full max-w-md text-center">
-        <span className="mx-auto mb-5 grid size-12 place-items-center rounded-md border bg-card text-muted-foreground">
-          <Compass aria-hidden="true" className="size-5" />
-        </span>
+        <BrandMark size={48} className="mx-auto mb-5 ring-1 ring-border" />
         <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
           Error 404
         </p>

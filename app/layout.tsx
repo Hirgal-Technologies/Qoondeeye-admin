@@ -19,6 +19,10 @@ export const metadata: Metadata = {
   },
   description:
     "Secure, aggregate analytics for Qoondeeye user growth, financial activity, and system health.",
+  icons: {
+    icon: "/app-icon.png",
+    apple: "/app-icon.png",
+  },
   robots: {
     index: false,
     follow: false,

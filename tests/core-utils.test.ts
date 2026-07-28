@@ -10,6 +10,10 @@ import {
   parseCreateAdminUserInput,
   parseUpdateAdminUserInput,
 } from "../features/admin-users/validation.ts";
+import {
+  isTransactionUserId,
+  sanitizeTransactionSearch,
+} from "../features/transactions/validation.ts";
 
 test("metric formatters avoid fake precision", () => {
   assert.equal(formatInteger.format(12_540), "12,540");
@@ -112,4 +116,20 @@ test("admin user validation normalizes safe create and update payloads", () => {
     true
   );
   assert.equal(isAdminUserId("../unsafe"), false);
+});
+
+test("transaction search cannot inject PostgREST filter syntax", () => {
+  assert.equal(
+    sanitizeTransactionSearch("  Aamina@example.com,or(id.eq.secret)  "),
+    "Aamina@example.com or id.eq.secret"
+  );
+  assert.equal(
+    sanitizeTransactionSearch("Cunto & Cabitaan / Qoys"),
+    "Cunto Cabitaan Qoys"
+  );
+  assert.equal(
+    isTransactionUserId("8a3d24d0-42aa-4d65-9a5f-a954f34bf727"),
+    true
+  );
+  assert.equal(isTransactionUserId("../unsafe"), false);
 });
