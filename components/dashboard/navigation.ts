@@ -1,6 +1,7 @@
 import {
   Activity,
   BookOpenCheck,
+  Boxes,
   Download,
   FileBarChart,
   Headphones,
@@ -59,6 +60,12 @@ export const DASHBOARD_NAVIGATION: DashboardNavGroup[] = [
         label: "Transactions",
         icon: ReceiptText,
         minimumRole: "admin",
+      },
+      {
+        href: "/dashboard/resellers",
+        label: "Reseller catalog",
+        icon: Boxes,
+        minimumRole: "support",
       },
       { href: "/dashboard/reports", label: "Reports", icon: FileBarChart },
       {
