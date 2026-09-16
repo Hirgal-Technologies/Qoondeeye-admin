@@ -30,8 +30,8 @@ jobs:
           echo "=== Current commit ==="
           git log -1 --oneline
 
-          echo "=== Building Docker image ==="
-          docker compose build
+          echo "=== Pulling latest Docker image ==="
+          docker compose pull
 
           echo "=== Starting containers ==="
           docker compose up -d
