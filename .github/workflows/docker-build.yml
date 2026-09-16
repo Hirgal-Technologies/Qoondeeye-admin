@@ -9,10 +9,11 @@ on:
 jobs:
   deploy:
     name: Build and Deploy
-    runs-on: self-hosted
+    runs-on: [self-hosted, Linux, X64]
 
     steps:
       - name: Deploy Qoondeeye Admin
+        shell: bash
         run: |
           set -e
 
@@ -23,8 +24,10 @@ jobs:
           echo "=== Current directory ==="
           pwd
 
-          echo "=== Pulling latest code ==="
+          echo "=== Fetching latest code ==="
           git fetch origin main
+
+          echo "=== Resetting to latest main ==="
           git reset --hard origin/main
 
           echo "=== Current commit ==="
