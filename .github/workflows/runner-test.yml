@@ -5,7 +5,9 @@ on:
 
 jobs:
   test:
-    runs-on: self-hosted
+    runs-on:
+      group: Default
+      labels: self-hosted
 
     steps:
       - name: Test runner
@@ -13,7 +15,11 @@ jobs:
           echo "================================"
           echo "RUNNER IS WORKING"
           echo "================================"
+          echo "Hostname:"
           hostname
+          echo "User:"
           whoami
+          echo "Working directory:"
           pwd
+          echo "Docker:"
           docker --version
