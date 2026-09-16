@@ -12,25 +12,37 @@ jobs:
     runs-on: self-hosted
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Run deploy on local server
+      - name: Deploy Qoondeeye Admin
         run: |
-          # Navigate to the project directory
-          cd /var/www/qoondeeye-admin
+          set -e
 
-          # Pull the latest changes from the main branch
-          git pull origin main
+          echo "=== Starting deployment ==="
 
-          # Clean up only unused resources (keep build cache)
-          docker system prune -f --volumes
+          cd /home/mnx/qoondeeye-admin
 
-          # Build with cache and BuildKit for faster builds
-          docker-compose build
+          echo "=== Current directory ==="
+          pwd
 
-          # Start the Docker containers in detached mode
-          docker-compose up -d
+          echo "=== Pulling latest code ==="
+          git fetch origin main
+          git reset --hard origin/main
 
-          # Clean up dangling images after deployment (keep recent images for cache)
+          echo "=== Current commit ==="
+          git log -1 --oneline
+
+          echo "=== Docker Compose ==="
+          docker compose version
+
+          echo "=== Building application ==="
+          docker compose build
+
+          echo "=== Starting containers ==="
+          docker compose up -d
+
+          echo "=== Container status ==="
+          docker compose ps
+
+          echo "=== Cleaning dangling images ==="
           docker image prune -f
+
+          echo "=== Deployment completed ==="
