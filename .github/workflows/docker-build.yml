@@ -4,18 +4,18 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "**"
+      - ".github/workflows/docker-build.yml"
   workflow_dispatch:
 
 jobs:
   deploy:
     name: Build and Deploy
-    runs-on:
-      group: Default
-      labels: self-hosted
+    runs-on: self-hosted
 
     steps:
       - name: Deploy Qoondeeye Admin
-        shell: bash
         run: |
           set -e
 
@@ -23,22 +23,14 @@ jobs:
 
           cd /home/mnx/qoondeeye-admin
 
-          echo "=== Current directory ==="
-          pwd
-
-          echo "=== Fetching latest code ==="
+          echo "=== Pulling latest code ==="
           git fetch origin main
-
-          echo "=== Resetting to latest main ==="
           git reset --hard origin/main
 
           echo "=== Current commit ==="
           git log -1 --oneline
 
-          echo "=== Docker Compose ==="
-          docker compose version
-
-          echo "=== Building application ==="
+          echo "=== Building Docker image ==="
           docker compose build
 
           echo "=== Starting containers ==="
