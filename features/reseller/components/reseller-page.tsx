@@ -182,7 +182,7 @@ function AuthorizedResellerPage({ hasAdminRole }: { hasAdminRole: boolean }) {
       <PageHeading
         eyebrow="TopTayo integration"
         title="Reseller catalog"
-        description="Browse TopTayo providers, bundles, and airtime top-up transactions from the live reseller API.."
+        description="Browse TopTayo providers, bundles, and airtime top-up transactions from the live reseller API."
       />
 
       <BusinessHero />
@@ -1048,12 +1048,10 @@ function RechargeModal({
       }),
     }).catch(() => null);
 
-    const body = await response
-      ?.json()
-      .catch(() => ({
-        data: null,
-        error: "The server returned an invalid response.",
-      }));
+    const body = await response?.json().catch(() => ({
+      data: null,
+      error: "The server returned an invalid response.",
+    }));
     setSubmitting(false);
 
     if (!response || !response.ok || body.error) {
