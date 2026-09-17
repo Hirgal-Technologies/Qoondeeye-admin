@@ -14,32 +14,80 @@ jobs:
     name: Build and Deploy
     runs-on: self-hosted
 
+    permissions:
+      contents: read
+      packages: write
+
     steps:
-      - name: Deploy Qoondeeye Admin
+      - name: Build and Deploy Qoondeeye Admin
         run: |
           set -e
 
-          echo "=== Starting deployment ==="
+          echo "========================================"
+          echo "Starting Qoondeeye Admin deployment"
+          echo "========================================"
 
           cd /home/mnx/qoondeeye-admin
 
-          echo "=== Pulling latest code ==="
+          echo "=== Pulling latest source code ==="
           git fetch origin main
           git reset --hard origin/main
 
           echo "=== Current commit ==="
-          git log -1 --oneline
+          git rev-parse HEAD
 
-          echo "=== Pulling latest Docker image ==="
-          docker compose pull
+          echo "=== Logging into GHCR ==="
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io \
+            -u "${{ github.actor }}" \
+            --password-stdin
 
-          echo "=== Starting containers ==="
-          docker compose up -d
+          echo "=== Building Docker image ==="
+          docker build \
+            --label org.opencontainers.image.revision="$(git rev-parse HEAD)" \
+            -t ghcr.io/hirgal-technologies/qoondeeye-admin:latest \
+            .
+
+          echo "=== Pushing Docker image to GHCR ==="
+          docker push ghcr.io/hirgal-technologies/qoondeeye-admin:latest
+
+          echo "=== Starting new container ==="
+          docker compose up -d --force-recreate
+
+          echo "=== Waiting for application startup ==="
+          sleep 10
 
           echo "=== Container status ==="
           docker compose ps
 
+          echo "=== Health check ==="
+          for i in 1 2 3 4 5; do
+            if docker exec qoondeeye-admin \
+              wget -qO- http://127.0.0.1:3000/api/health; then
+              echo ""
+              echo "Health check passed."
+              break
+            fi
+
+            echo "Health check attempt $i failed. Waiting..."
+            sleep 5
+
+            if [ "$i" = "5" ]; then
+              echo "Health check failed."
+              docker logs qoondeeye-admin --tail 100
+              exit 1
+            fi
+          done
+
+          echo "=== Deployed image revision ==="
+          docker inspect qoondeeye-admin \
+            --format '{{index .Config.Labels "org.opencontainers.image.revision"}}'
+
+          echo "=== Git revision ==="
+          git rev-parse HEAD
+
           echo "=== Cleaning dangling images ==="
           docker image prune -f
 
-          echo "=== Deployment completed ==="
+          echo "========================================"
+          echo "Deployment completed successfully"
+          echo "========================================"
