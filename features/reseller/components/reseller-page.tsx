@@ -1015,8 +1015,6 @@ function RechargeModal({
 }) {
   const [sender, setSender] = useState("612673277");
   const [receiver, setReceiver] = useState("");
-  const [scheduledTime, setScheduledTime] = useState("");
-  const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<RechargeResult | null>(null);
@@ -1041,10 +1039,6 @@ function RechargeModal({
         sender: Number(sender),
         receiver: Number(receiver),
         bundleId: bundle.id,
-        reason,
-        ...(scheduledTime
-          ? { scheduledTime: new Date(scheduledTime).toISOString() }
-          : {}),
       }),
     }).catch(() => null);
 
@@ -1163,32 +1157,6 @@ function RechargeModal({
               </label>
             </div>
 
-            <label>
-              <span className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
-                Schedule for later (optional)
-              </span>
-              <input
-                type="datetime-local"
-                value={scheduledTime}
-                onChange={(event) => setScheduledTime(event.target.value)}
-                className="h-10 w-full rounded-md border bg-background px-3 text-xs outline-none focus:border-ring focus:ring-2 focus:ring-ring/15"
-              />
-            </label>
-
-            <label>
-              <span className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
-                Reason (10+ characters, stored in the audit log)
-              </span>
-              <textarea
-                required
-                minLength={10}
-                value={reason}
-                onChange={(event) => setReason(event.target.value)}
-                placeholder="Describe why this recharge is being sent."
-                className="min-h-20 w-full resize-y rounded-md border bg-background px-3 py-2 text-xs leading-5 outline-none focus:border-ring focus:ring-2 focus:ring-ring/15"
-              />
-            </label>
-
             {error ? (
               <p className="text-xs text-destructive" role="alert">
                 {error}
@@ -1197,7 +1165,7 @@ function RechargeModal({
 
             <button
               type="submit"
-              disabled={submitting || reason.trim().length < 10}
+              disabled={submitting}
               className="gradient-button inline-flex h-10 w-full items-center justify-center gap-2 rounded-md text-sm font-medium text-primary-foreground disabled:cursor-not-allowed disabled:opacity-50"
             >
               {submitting ? (

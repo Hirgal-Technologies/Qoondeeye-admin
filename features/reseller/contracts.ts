@@ -82,8 +82,6 @@ export type RechargeInput = {
   sender: number;
   receiver: number;
   bundleId: string;
-  scheduledTime?: string;
-  reason: string;
 };
 
 export type RechargeResult = {

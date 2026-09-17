@@ -73,6 +73,5 @@ export function createRecharge(input: RechargeInput) {
     sender: input.sender,
     receiver: input.receiver,
     bundleId: input.bundleId,
-    ...(input.scheduledTime ? { scheduledTime: input.scheduledTime } : {}),
   });
 }

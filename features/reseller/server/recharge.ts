@@ -26,12 +26,10 @@ export async function runRecharge(
       actorRole: actor.role,
       action: "reseller_recharge_created",
       metadata: {
-        reason: input.reason,
         outcome: "Completed",
         sender: input.sender,
         receiver: input.receiver,
         bundleId: input.bundleId,
-        scheduledTime: input.scheduledTime ?? null,
         transactionIds: result.transactionIds,
       },
     });
@@ -50,12 +48,10 @@ export async function runRecharge(
       actorRole: actor.role,
       action: "reseller_recharge_failed",
       metadata: {
-        reason: input.reason,
         outcome: `Failed (${status})`,
         sender: input.sender,
         receiver: input.receiver,
         bundleId: input.bundleId,
-        scheduledTime: input.scheduledTime ?? null,
         error: message,
       },
     });
