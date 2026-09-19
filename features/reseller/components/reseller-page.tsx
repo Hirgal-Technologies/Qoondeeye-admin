@@ -820,12 +820,6 @@ function BundleCard({
             </p>
           )
         ) : null}
-        <p className="text-[10px] text-muted-foreground">
-          Data source{" "}
-          <span className="font-medium text-foreground/80">
-            {pricing.dataSource ?? "None"}
-          </span>
-        </p>
       </div>
 
       {canRecharge ? (
