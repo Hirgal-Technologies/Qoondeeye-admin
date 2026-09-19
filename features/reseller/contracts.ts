@@ -1,3 +1,5 @@
+import type { BundlePriceComparison } from "@/features/reseller/pricing";
+
 export type ResellerProvider = {
   id: string;
   name: string;
@@ -25,6 +27,10 @@ export type ResellerBundle = {
   validityType: string;
   description: string;
   category?: ResellerCategory;
+};
+
+export type CatalogBundle = ResellerBundle & {
+  pricing: BundlePriceComparison;
 };
 
 export type ResellerTransactionBundle = {

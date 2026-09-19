@@ -1,5 +1,6 @@
 import "server-only";
 import type {
+  CatalogBundle,
   CursorListParams,
   CursorPage,
   RechargeInput,
@@ -10,6 +11,8 @@ import type {
   ResellerProvider,
   ResellerTransaction,
 } from "@/features/reseller/contracts";
+import { compareBundlePricing } from "@/features/reseller/pricing";
+import { listPriceOverridesByBundleIds } from "@/features/reseller/server/price-overrides";
 import { toptayoFetch, toptayoPost } from "@/lib/toptayo/client";
 
 export function listProviders(params: CursorListParams) {
@@ -33,18 +36,39 @@ export function listCategories(
   });
 }
 
-export function listBundles(
+export async function listBundles(
   params: CursorListParams & { providerId?: string; categoryId?: string },
 ) {
   const path =
     params.providerId && params.categoryId
       ? `/api/v1/providers/${params.providerId}/categories/${params.categoryId}/bundles`
       : "/api/v1/bundles";
-  return toptayoFetch<CursorPage<ResellerBundle>>(path, {
+  const page = await toptayoFetch<CursorPage<ResellerBundle>>(path, {
     q: params.q,
     cursor: params.cursor,
     limit: params.limit,
   });
+  return attachCatalogPricing(page);
+}
+
+async function attachCatalogPricing(
+  page: CursorPage<ResellerBundle>,
+): Promise<CursorPage<CatalogBundle>> {
+  const bundles = Array.isArray(page.data) ? page.data : [];
+  const overrides = await listPriceOverridesByBundleIds(
+    bundles.map((bundle) => bundle.id),
+  );
+
+  return {
+    ...page,
+    data: bundles.map((bundle) => ({
+      ...bundle,
+      pricing: compareBundlePricing({
+        liveAmount: bundle.amount,
+        override: overrides.get(bundle.id) ?? null,
+      }),
+    })),
+  };
 }
 
 export function listTransactions(params: CursorListParams) {

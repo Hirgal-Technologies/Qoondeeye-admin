@@ -22,6 +22,7 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { PageHeading } from "@/components/dashboard/PageHeading";
 import { StatePanel } from "@/components/states/StatePanel";
 import type {
+  CatalogBundle,
   RechargeResult,
   ResellerBundle,
   ResellerBusiness,
@@ -29,6 +30,10 @@ import type {
   ResellerProvider,
   ResellerTransaction,
 } from "@/features/reseller/contracts";
+import {
+  compareBundlePricing,
+  type BundlePriceComparison,
+} from "@/features/reseller/pricing";
 import { formatDateTime } from "@/lib/formatters";
 import { useApiData } from "@/lib/hooks/useApiData";
 
@@ -157,7 +162,7 @@ export function ResellerPage({
         <PageHeading
           eyebrow="TopTayo integration"
           title="Reseller catalog"
-          description="Browse TopTayo providers, bundles, and airtime top-up transactions."
+          description="Compare live TopTayo cost with Qoondeeye selling prices from bundle_price_overrides."
         />
         <StatePanel
           kind="permission"
@@ -182,7 +187,7 @@ function AuthorizedResellerPage({ hasAdminRole }: { hasAdminRole: boolean }) {
       <PageHeading
         eyebrow="TopTayo integration"
         title="Reseller catalog"
-        description="Browse TopTayo providers, bundles, and airtime top-up transactions from the live reseller API."
+        description="Compare live TopTayo cost with Qoondeeye selling prices from bundle_price_overrides. Gross is internal-only."
       />
 
       <BusinessHero />
@@ -693,7 +698,7 @@ function BundleGrid({
     if (search) params.set("q", search);
     return `/api/resellers/bundles?${params.toString()}`;
   }, [providerId, categoryId, search]);
-  const list = useCursorList<ResellerBundle>(url);
+  const list = useCursorList<CatalogBundle>(url);
 
   if (list.status === "loading") return <CardGridSkeleton />;
   if (list.status === "error") {
@@ -718,6 +723,11 @@ function BundleGrid({
 
   return (
     <>
+      <p className="mb-3 text-[11px] leading-5 text-muted-foreground">
+        TopTayo is the live supplier cost. Qoondeeye is the customer selling
+        price from <span className="font-medium">bundle_price_overrides</span>.
+        Gross is selling price minus TopTayo cost.
+      </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
         {list.items.map((bundle) => (
           <BundleCard
@@ -738,20 +748,27 @@ function BundleCard({
   canRecharge,
   onRecharge,
 }: {
-  bundle: ResellerBundle;
+  bundle: CatalogBundle;
   canRecharge: boolean;
   onRecharge: (bundle: ResellerBundle) => void;
 }) {
   const specs = bundleSpecs(bundle);
+  const pricing =
+    bundle.pricing ??
+    compareBundlePricing({ liveAmount: bundle.amount, override: null });
+  const isLoss = pricing.isLoss;
+
   return (
-    <article className="gradient-surface flex flex-col rounded-lg border p-4">
+    <article
+      className={`flex flex-col rounded-lg border p-4 ${
+        isLoss ? "gradient-kpi-critical" : "gradient-surface"
+      }`}
+    >
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm font-semibold leading-5 text-foreground">
           {bundle.name}
         </p>
-        <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
-          {currency.format(Number(bundle.amount))}
-        </span>
+        <PricingStatusBadge pricing={pricing} />
       </div>
       {bundle.description ? (
         <p className="mt-1 text-[11px] leading-4 text-muted-foreground">
@@ -769,10 +786,48 @@ function BundleCard({
           </span>
         ))}
       </div>
-      <p className="mt-3 border-t pt-2.5 text-[10px] text-muted-foreground">
+      <p className="mt-3 text-[10px] text-muted-foreground">
         Valid {bundle.validity} {bundle.validityType.toLowerCase()}
         {bundle.validity === 1 ? "" : "s"}
       </p>
+
+      <div className="mt-3 space-y-2 border-t pt-3">
+        <PriceRow
+          label="TopTayo"
+          value={
+            pricing.topTayoCostCents !== null
+              ? currency.format(pricing.topTayoCostCents / 100)
+              : currency.format(Number(bundle.amount))
+          }
+          valueClassName="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary"
+        />
+        <PriceRow
+          label="Qoondeeye"
+          value={qoondeeyePriceLabel(pricing)}
+          valueClassName={qoondeeyePriceClass(pricing)}
+        />
+        {pricing.status === "priced" && pricing.grossCents !== null ? (
+          isLoss ? (
+            <p
+              className="rounded-md border border-destructive/40 bg-destructive/10 px-2.5 py-1.5 text-xs font-semibold tracking-wide text-destructive"
+              role="status"
+            >
+              LOSS -{currency.format(Math.abs(pricing.grossCents) / 100)}
+            </p>
+          ) : (
+            <p className="text-[11px] font-medium text-muted-foreground">
+              Gross +{currency.format(pricing.grossCents / 100)}
+            </p>
+          )
+        ) : null}
+        <p className="text-[10px] text-muted-foreground">
+          Data source{" "}
+          <span className="font-medium text-foreground/80">
+            {pricing.dataSource ?? "None"}
+          </span>
+        </p>
+      </div>
+
       {canRecharge ? (
         <button
           type="button"
@@ -785,6 +840,62 @@ function BundleCard({
       ) : null}
     </article>
   );
+}
+
+function PricingStatusBadge({ pricing }: { pricing: BundlePriceComparison }) {
+  if (pricing.status === "priced") {
+    return (
+      <span className="shrink-0 rounded-full bg-success-muted px-2 py-1 text-[10px] font-medium text-success">
+        Enabled
+      </span>
+    );
+  }
+  if (pricing.status === "disabled") {
+    return (
+      <span className="shrink-0 rounded-full bg-warning-muted px-2 py-1 text-[10px] font-medium text-warning">
+        Disabled
+      </span>
+    );
+  }
+  return (
+    <span className="shrink-0 rounded-full bg-neutral-muted px-2 py-1 text-[10px] font-medium text-muted-foreground">
+      Not priced
+    </span>
+  );
+}
+
+function PriceRow({
+  label,
+  value,
+  valueClassName,
+}: {
+  label: string;
+  value: string;
+  valueClassName: string;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+        {label}
+      </span>
+      <span className={`shrink-0 tabular-nums ${valueClassName}`}>{value}</span>
+    </div>
+  );
+}
+
+function qoondeeyePriceLabel(pricing: BundlePriceComparison) {
+  if (pricing.status === "disabled") return "Disabled";
+  if (pricing.status !== "priced" || pricing.sellingPriceCents === null) {
+    return "Not priced";
+  }
+  return currency.format(pricing.sellingPriceCents / 100);
+}
+
+function qoondeeyePriceClass(pricing: BundlePriceComparison) {
+  if (pricing.status === "priced") {
+    return "rounded-full bg-success-muted px-2.5 py-1 text-sm font-semibold text-success";
+  }
+  return "rounded-full border bg-background px-2.5 py-1 text-xs font-medium text-muted-foreground";
 }
 
 function bundleSpecs(bundle: ResellerBundle) {
@@ -834,7 +945,7 @@ function CardGridSkeleton() {
       aria-label="Loading"
     >
       {[0, 1, 2, 3, 4, 5, 6, 7].map((row) => (
-        <div className="skeleton h-24 rounded-lg" key={row} />
+        <div className="skeleton h-44 rounded-lg" key={row} />
       ))}
     </div>
   );

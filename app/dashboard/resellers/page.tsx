@@ -5,7 +5,8 @@ import { getAdminSession, hasRole } from "@/lib/auth/session";
 
 export const metadata: Metadata = {
   title: "Reseller catalog",
-  description: "Browse TopTayo providers, bundles, and transactions.",
+  description:
+    "Compare live TopTayo cost with Qoondeeye selling prices from bundle_price_overrides.",
 };
 
 export default async function Page() {
