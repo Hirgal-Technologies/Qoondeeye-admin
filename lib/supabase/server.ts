@@ -1,5 +1,8 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { ensureServerWebSocket } from "@/lib/supabase/ensure-websocket";
+
+ensureServerWebSocket();
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_KEY!;

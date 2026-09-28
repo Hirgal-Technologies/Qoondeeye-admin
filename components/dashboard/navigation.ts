@@ -9,6 +9,7 @@ import {
   ReceiptText,
   Settings,
   ShieldUser,
+  Signal,
   UserCheck,
   UserPlus,
   Users,
@@ -66,6 +67,12 @@ export const DASHBOARD_NAVIGATION: DashboardNavGroup[] = [
         label: "Reseller catalog",
         icon: Boxes,
         minimumRole: "support",
+      },
+      {
+        href: "/dashboard/merchant-gateway",
+        label: "Merchant gateway",
+        icon: Signal,
+        minimumRole: "admin",
       },
       { href: "/dashboard/reports", label: "Reports", icon: FileBarChart },
       {
