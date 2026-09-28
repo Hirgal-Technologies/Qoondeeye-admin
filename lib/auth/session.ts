@@ -37,6 +37,15 @@ export async function getAdminSession(): Promise<AdminIdentity | null> {
   return { id: adminRow.id, email: adminRow.email, role: adminRow.role as AdminRole };
 }
 
+export async function getAdminAccessToken() {
+  const supabase = await createClient();
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  return typeof token === "string" && token.length > 0 ? token : null;
+}
+
 export function hasRole(identity: AdminIdentity, minRole: AdminRole) {
   return hasMinimumRole(identity.role, minRole);
 }
