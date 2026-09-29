@@ -14,9 +14,12 @@ import {
   canEnableConfirm,
   compareEventToOrder,
   formatMoney,
+  formatRelativeTime,
   fulfillmentResultCopy,
   gatewayHeadline,
+  inferAuthorizedPaymentMethods,
   inspectReconciliation,
+  isLabGateway,
   mapAuditEntry,
   normalizeGatewayStatus,
   parsePaymentReviewFilter,
@@ -62,6 +65,23 @@ test("gateway status labels stay explicit", () => {
       failedFulfillment: 0,
     }),
     "Online",
+  );
+});
+
+test("gateway cards infer authorized SIMs and mute lab devices", () => {
+  assert.deepEqual(inferAuthorizedPaymentMethods(["252621854843"]), ["edahab"]);
+  assert.deepEqual(inferAuthorizedPaymentMethods(["252611854843", "252621854843"]), [
+    "evc_plus",
+    "edahab",
+  ]);
+  assert.equal(
+    isLabGateway({ name: "Simulator gateway", appVersion: "simulator-1" }),
+    true,
+  );
+  assert.equal(isLabGateway({ name: "edahab-a32", appVersion: "1.0.2" }), false);
+  assert.equal(
+    formatRelativeTime("2026-09-27T11:59:30.000Z", Date.parse("2026-09-27T12:00:00.000Z")),
+    "Just now",
   );
 });
 

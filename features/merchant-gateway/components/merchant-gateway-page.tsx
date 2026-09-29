@@ -38,18 +38,24 @@ import {
   formatMoney,
   formatNetwork,
   formatPaymentMethod,
+  formatRelativeTime,
   formatSim,
   formatTimestamp,
   fulfillmentResultCopy,
   gatewayHeadline,
   gatewayHeadlineIsCritical,
+  inferAuthorizedPaymentMethods,
   inspectReconciliation,
+  isLabGateway,
   isOrderExpired,
+  operationalDevices,
   parseMerchantSection,
   parsePaymentReviewFilter,
   paymentFilterLabel,
+  paymentMethodHintLabel,
   reconciliationErrorMessage,
   shouldRefreshReconciliation,
+  simRowLabel,
 } from "@/features/merchant-gateway/presentation";
 import { formatInteger } from "@/lib/formatters";
 import { useApiData } from "@/lib/hooks/useApiData";
@@ -99,7 +105,9 @@ function AuthorizedMerchantGateway({ canReconcile }: { canReconcile: boolean }) 
 
   const counts = summary.status === "success" ? summary.data.counts : null;
   const gatewayCount =
-    summary.status === "success" ? summary.data.devices.length : 0;
+    summary.status === "success"
+      ? operationalDevices(summary.data.devices).length
+      : 0;
 
   return (
     <div className="flex flex-col gap-6 lg:gap-7">
@@ -264,12 +272,21 @@ function GatewaysPanel({
   summary: ReturnType<typeof useApiData<MerchantGatewaySummary>>;
   onRetry: () => void;
 }) {
+  const productionDevices =
+    summary.status === "success" ? operationalDevices(summary.data.devices) : [];
+  const labDevices =
+    summary.status === "success"
+      ? summary.data.devices.filter((device) => isLabGateway(device))
+      : [];
+
   return (
     <div className="flex flex-col gap-4">
       <section className="rounded-lg border bg-card p-4 shadow-[var(--shadow-card)] sm:p-5">
         <h2 className="text-sm font-semibold text-foreground">Gateway devices</h2>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          Live heartbeat, SIM detection, and the last message the gateway exchanged with the backend.
+          Heartbeat, battery, and only the payment SIMs each device is authorized to
+          watch. Lab simulators are listed separately so they do not look like live
+          outages.
         </p>
         <div className="mt-4">
           {summary.status === "loading" ? <CardSkeleton /> : null}
@@ -283,22 +300,36 @@ function GatewaysPanel({
               onAction={onRetry}
             />
           ) : null}
-          {summary.status === "success" && summary.data.devices.length === 0 ? (
+          {summary.status === "success" && productionDevices.length === 0 ? (
             <StatePanel
               compact
-              title="No merchant gateways"
+              title="No production gateways"
               description="Enrolled gateway devices will appear here after the backend records them."
             />
           ) : null}
-          {summary.status === "success" && summary.data.devices.length > 0 ? (
+          {summary.status === "success" && productionDevices.length > 0 ? (
             <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-              {summary.data.devices.map((device) => (
+              {productionDevices.map((device) => (
                 <GatewayCard device={device} key={device.id} />
               ))}
             </div>
           ) : null}
         </div>
       </section>
+
+      {summary.status === "success" && labDevices.length > 0 ? (
+        <section className="rounded-lg border border-dashed bg-card/60 p-4 sm:p-5">
+          <h2 className="text-sm font-semibold text-foreground">Lab / simulator</h2>
+          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+            Development gateways are excluded from the summary status tiles above.
+          </p>
+          <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
+            {labDevices.map((device) => (
+              <GatewayCard device={device} key={device.id} lab />
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       <section
         id="fulfillment"
@@ -365,14 +396,27 @@ function GatewaysPanel({
   );
 }
 
-function GatewayCard({ device }: { device: MerchantGatewayDevice }) {
+function GatewayCard({
+  device,
+  lab = false,
+}: {
+  device: MerchantGatewayDevice;
+  lab?: boolean;
+}) {
+  const authorized = inferAuthorizedPaymentMethods(device.receiverMsisdns);
+  const simMethods: Array<"evc_plus" | "edahab"> =
+    authorized.length > 0 ? authorized : ["evc_plus", "edahab"];
+
   return (
-    <article className="rounded-lg border bg-background p-4">
+    <article
+      className={`rounded-lg border bg-background p-4 ${lab ? "opacity-90" : ""}`}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold text-foreground">{device.name}</h3>
           <p className="mt-1 text-[11px] text-muted-foreground">
             App {device.appVersion || "—"}
+            {lab ? " · Lab device" : ""}
             {device.uploadFailures > 0
               ? ` · ${formatInteger.format(device.uploadFailures)} upload failures`
               : ""}
@@ -381,7 +425,10 @@ function GatewayCard({ device }: { device: MerchantGatewayDevice }) {
         <GatewayStatusBadge status={device.status} />
       </div>
       <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
-        <Fact label="Last heartbeat" value={formatTimestamp(device.lastHeartbeatAt)} />
+        <Fact
+          label="Last heartbeat"
+          value={`${formatRelativeTime(device.lastHeartbeatAt)} · ${formatTimestamp(device.lastHeartbeatAt)}`}
+        />
         <Fact
           label="Battery"
           value={`${formatBattery(device.batteryPercent)} · ${formatCharging(device.isCharging)}`}
@@ -391,22 +438,29 @@ function GatewayCard({ device }: { device: MerchantGatewayDevice }) {
           value={formatNetwork(device.networkConnected, device.networkType)}
         />
         <Fact label="Last SMS" value={formatTimestamp(device.lastSmsReceivedAt)} />
-        <div>
-          <dt className="text-[11px] text-muted-foreground">EVC Plus SIM</dt>
-          <dd className="mt-0.5">
-            <SimState detected={device.evcSimDetected} />
-          </dd>
-        </div>
-        <div>
-          <dt className="text-[11px] text-muted-foreground">eDahab SIM</dt>
-          <dd className="mt-0.5">
-            <SimState detected={device.edahabSimDetected} />
-          </dd>
-        </div>
+        {simMethods.map((method) => (
+          <div key={method}>
+            <dt className="text-[11px] text-muted-foreground">{simRowLabel(method)}</dt>
+            <dd className="mt-0.5">
+              <SimState
+                detected={
+                  method === "evc_plus" ? device.evcSimDetected : device.edahabSimDetected
+                }
+              />
+            </dd>
+          </div>
+        ))}
         <Fact label="Last merchant event" value={formatTimestamp(device.lastMerchantEventAt)} />
         <Fact label="Last backend acknowledgement" value={formatTimestamp(device.lastBackendAckAt)} />
       </dl>
-      {device.receiverMsisdns.length > 0 ? (
+      {authorized.length > 0 ? (
+        <p className="mt-4 text-[11px] leading-5 text-muted-foreground">
+          Authorized {authorized.map(paymentMethodHintLabel).join(", ")}
+          {device.receiverMsisdns.length > 0
+            ? ` · Watching ${device.receiverMsisdns.join(", ")}`
+            : ""}
+        </p>
+      ) : device.receiverMsisdns.length > 0 ? (
         <p className="mt-4 text-[11px] leading-5 text-muted-foreground">
           Watching {device.receiverMsisdns.join(", ")}
         </p>

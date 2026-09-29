@@ -20,6 +20,7 @@ import {
   alertDetail,
   alertLabel,
   alertTone,
+  isLabGateway,
   mapAuditEntry,
   normalizeGatewayStatus,
   transitionTone,
@@ -59,14 +60,15 @@ export async function getMerchantGatewaySummary(): Promise<MerchantGatewaySummar
   throwIfError(exceptionsResult.error);
 
   const devices = rows<DeviceRow>(devicesResult.data).map(mapDevice);
+  const production = devices.filter((device) => !isLabGateway(device));
   return {
     devices,
     counts: {
-      online: devices.filter((device) => device.status === "ONLINE").length,
-      degraded: devices.filter((device) => device.status === "DEGRADED").length,
-      offline: devices.filter((device) => device.status === "OFFLINE").length,
-      revoked: devices.filter((device) => device.status === "REVOKED").length,
-      unknown: devices.filter((device) => device.status === "UNKNOWN").length,
+      online: production.filter((device) => device.status === "ONLINE").length,
+      degraded: production.filter((device) => device.status === "DEGRADED").length,
+      offline: production.filter((device) => device.status === "OFFLINE").length,
+      revoked: production.filter((device) => device.status === "REVOKED").length,
+      unknown: production.filter((device) => device.status === "UNKNOWN").length,
       pendingOrders: pendingResult.count ?? 0,
       unmatchedPayments: unmatchedResult,
       ambiguousPayments: ambiguousResult,
