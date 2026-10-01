@@ -1,3 +1,5 @@
+import type { ProductionSafeguardView } from "@/features/operations/contracts";
+
 export type GatewayHealthStatus =
   | "ONLINE"
   | "DEGRADED"
@@ -35,6 +37,12 @@ export type MerchantGatewayDevice = {
   appVersion: string | null;
   uploadFailures: number;
   revokedAt: string | null;
+  /** Latest health-transition reason when the backend stored one. */
+  statusReason: string | null;
+  /** Null when the gateway does not report a pending-upload count. */
+  pendingUploadCount: number | null;
+  /** Null when the gateway does not report a last successful upload. */
+  lastSuccessfulUploadAt: string | null;
 };
 
 export type MerchantGatewayCounts = {
@@ -43,26 +51,63 @@ export type MerchantGatewayCounts = {
   offline: number;
   revoked: number;
   unknown: number;
-  pendingOrders: number;
+  paidAwaitingFulfillment: number;
+  rechargeUncertain: number;
+  fulfillmentHeld: number;
   unmatchedPayments: number;
   ambiguousPayments: number;
-  manualReviewPayments: number;
-  failedFulfillment: number;
+  activeAlerts: number;
 };
 
-export type FulfillmentException = {
+export type PaidFulfillmentOrder = {
   id: string;
+  payerPhone: string | null;
+  destinationPhone: string | null;
+  paymentMethod: string | null;
+  amountPaidCents: number | null;
+  currency: string;
   bundleName: string;
+  providerName: string | null;
+  topTayoCostCents: number | null;
+  merchantProviderTxnId: string | null;
+  merchantTxnLookup: "known" | "unavailable";
   paymentStatus: string;
   fulfillmentStatus: string;
+  reservationOutcome: string | null;
+  reservationKnown: boolean;
   failureCode: string | null;
+  topTayoTransactionIds: string[];
+  /** TopTayo id accepted by the admin server when Qoondeeye recording is still pending. */
+  pendingRecordTransactionId: string | null;
+  paidAt: string | null;
+  lastFulfillmentAttemptAt: string | null;
   updatedAt: string | null;
 };
 
+export type ManualFulfillmentHistoryEntry = {
+  id: string;
+  orderId: string;
+  adminEmail: string;
+  action: string;
+  reservationOutcome: string | null;
+  fulfillmentStatus: string | null;
+  topTayoTransactionId: string | null;
+  createdAt: string;
+};
+
 export type MerchantGatewaySummary = {
+  generatedAt: string;
   devices: MerchantGatewayDevice[];
+  historicalDevices: MerchantGatewayDevice[];
+  excludedLabGateways: number;
   counts: MerchantGatewayCounts;
-  fulfillmentExceptions: FulfillmentException[];
+  paidOrders: PaidFulfillmentOrder[];
+  recentCompleted: PaidFulfillmentOrder[];
+  reservationStateAvailable: boolean;
+  fulfillmentAlertsAvailable: boolean;
+  manualHistory: ManualFulfillmentHistoryEntry[];
+  manualHistoryAvailable: boolean;
+  safeguards: ProductionSafeguardView;
 };
 
 export type BundleOrderSnapshot = {
@@ -106,6 +151,8 @@ export type GatewayHistoryItem = {
   detail: string;
   deviceName: string;
   tone: "critical" | "warning" | "success" | "neutral";
+  category: "gateway" | "payment" | "fulfillment";
+  lifecycle: "active" | "resolved";
 };
 
 export type GatewayHistory = {

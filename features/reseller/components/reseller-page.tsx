@@ -13,7 +13,6 @@ import {
   Search,
   Signal,
   Smartphone,
-  TriangleAlert,
   Wallet,
   X,
   Zap,
@@ -34,6 +33,8 @@ import {
   compareBundlePricing,
   type BundlePriceComparison,
 } from "@/features/reseller/pricing";
+import { SafeguardsPanel } from "@/features/operations/components/safeguards-panel";
+import type { ProductionSafeguardView } from "@/features/operations/contracts";
 import { formatDateTime } from "@/lib/formatters";
 import { useApiData } from "@/lib/hooks/useApiData";
 
@@ -268,44 +269,19 @@ function TabButton({
   );
 }
 
-const LOW_BALANCE_THRESHOLD_USD = 25;
-
 function BusinessHero() {
   const result = useApiData<ResellerBusiness>("/api/resellers/business");
-  const notifiedBalanceRef = useRef<number | null>(null);
-
+  const safeguards = useApiData<ProductionSafeguardView>("/api/operations/safeguards");
   const business = result.status === "success" ? result.data : null;
-  const balance = business ? Number(business.balance.replace(/,/g, "")) : null;
-  const isLowBalance = balance !== null && balance < LOW_BALANCE_THRESHOLD_USD;
-
-  useEffect(() => {
-    if (!isLowBalance || balance === null) return;
-    // Only fire the OS notification once per distinct low balance reading,
-    // not on every re-render or poll while it stays at the same value.
-    if (notifiedBalanceRef.current === balance) return;
-    notifiedBalanceRef.current = balance;
-
-    if (typeof window === "undefined" || !("Notification" in window)) return;
-    const send = () =>
-      new Notification("Low TopTayo balance", {
-        body: `Your reseller balance is ${currency.format(balance)}, below the $${LOW_BALANCE_THRESHOLD_USD} threshold. Top up to avoid failed recharges.`,
-      });
-
-    if (Notification.permission === "granted") {
-      send();
-    } else if (Notification.permission === "default") {
-      Notification.requestPermission().then((permission) => {
-        if (permission === "granted") send();
-      });
-    }
-  }, [isLowBalance, balance]);
+  const balance = business ? Number(business.balance.replace(/[$,]/g, "")) : null;
+  const balanceKnown = balance !== null && Number.isFinite(balance);
 
   if (result.status === "error") {
     return (
       <StatePanel
         compact
         kind="error"
-        title="TopTayo account details unavailable"
+        title="TopTayo balance unavailable"
         description={result.error}
         actionLabel="Retry"
         onAction={result.retry}
@@ -332,16 +308,8 @@ function BusinessHero() {
               {result.status === "loading" ? (
                 <div className="mt-2 skeleton h-8 w-40 rounded" />
               ) : (
-                <p
-                  className={`mt-0.5 text-3xl font-semibold tracking-tight tabular-nums ${
-                    isLowBalance ? "text-destructive" : "text-foreground"
-                  }`}
-                >
-                  {business
-                    ? currency.format(
-                        Number(business.balance.replace(/,/g, "")),
-                      )
-                    : "—"}
+                <p className="mt-0.5 text-3xl font-semibold tracking-tight text-foreground tabular-nums">
+                  {balanceKnown && balance !== null ? currency.format(balance) : "TopTayo balance unavailable"}
                 </p>
               )}
             </div>
@@ -351,31 +319,23 @@ function BusinessHero() {
             <div className="grid grid-cols-2 gap-x-6 gap-y-2 text-xs sm:flex sm:items-center sm:gap-6">
               <HeroField label="Email" value={business.email} />
               <HeroField label="Mobile" value={String(business.mobile)} />
-              <HeroField
-                label="Member since"
-                value={formatDateTime(business.createdAt)}
-              />
+              <HeroField label="Member since" value={formatDateTime(business.createdAt)} />
             </div>
           ) : null}
         </div>
       </section>
-
-      {isLowBalance && balance !== null ? (
-        <div className="flex items-start gap-3 rounded-lg border border-destructive/35 bg-destructive/5 p-4">
-          <TriangleAlert
-            aria-hidden="true"
-            className="mt-0.5 size-4 shrink-0 text-destructive"
-          />
-          <div>
-            <p className="text-xs font-medium text-destructive">
-              Low TopTayo balance — {currency.format(balance)} remaining
-            </p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">
-              The account balance is below the ${LOW_BALANCE_THRESHOLD_USD}{" "}
-              threshold. Top up soon to avoid failed recharges.
-            </p>
-          </div>
-        </div>
+      {safeguards.status === "success" ? (
+        <SafeguardsPanel view={safeguards.data} showBalance={false} />
+      ) : null}
+      {safeguards.status === "error" ? (
+        <StatePanel
+          compact
+          kind="error"
+          title="Production safeguard status unavailable"
+          description={safeguards.error}
+          actionLabel="Retry"
+          onAction={safeguards.retry}
+        />
       ) : null}
     </div>
   );
@@ -1010,13 +970,13 @@ function TransactionsPanel() {
                 <thead className="sticky top-0 z-10">
                   <tr className="border-b bg-[hsl(var(--surface-table-head))] text-muted-foreground">
                     <th scope="col" className="px-3 py-2.5 font-medium">
-                      Date
+                      TopTayo ID
                     </th>
                     <th scope="col" className="px-3 py-2.5 font-medium">
-                      Sender
+                      Created
                     </th>
                     <th scope="col" className="px-3 py-2.5 font-medium">
-                      Receiver
+                      Destination
                     </th>
                     <th scope="col" className="px-3 py-2.5 font-medium">
                       Bundle
@@ -1027,11 +987,14 @@ function TransactionsPanel() {
                     <th scope="col" className="px-3 py-2.5 font-medium">
                       Status
                     </th>
+                    <th scope="col" className="px-3 py-2.5 font-medium">
+                      Qoondeeye order
+                    </th>
                     <th
                       scope="col"
                       className="px-3 py-2.5 text-right font-medium"
                     >
-                      Amount
+                      Cost
                     </th>
                   </tr>
                 </thead>
@@ -1045,11 +1008,11 @@ function TransactionsPanel() {
                           : ""
                       }`}
                     >
+                      <td className="max-w-40 px-3 py-3 font-mono text-[11px]">
+                        {row.id}
+                      </td>
                       <td className="whitespace-nowrap px-3 py-3 tabular-nums text-muted-foreground">
                         {formatDateTime(row.createdAt)}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-3 font-mono tabular-nums">
-                        {row.sender}
                       </td>
                       <td className="whitespace-nowrap px-3 py-3 font-mono tabular-nums">
                         {row.receiver}
@@ -1067,6 +1030,13 @@ function TransactionsPanel() {
                       </td>
                       <td className="px-3 py-3">
                         <TransactionStatusBadge status={row.status} />
+                      </td>
+                      <td className="px-3 py-3 font-mono text-[11px]">
+                        {row.qoondeeyeOrderLookup === "unavailable"
+                          ? "Order link unavailable"
+                          : row.qoondeeyeOrderId
+                            ? `${row.qoondeeyeOrderId.slice(0, 8)}…`
+                            : "—"}
                       </td>
                       <td className="whitespace-nowrap px-3 py-3 text-right font-medium tabular-nums">
                         {currency.format(Number(row.amount))}

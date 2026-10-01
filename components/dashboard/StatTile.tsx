@@ -22,7 +22,7 @@ type StatTileProps = {
   change?: MetricChange;
   icon?: LucideIcon;
   tooltip?: string;
-  status?: "default" | "critical";
+  status?: "default" | "critical" | "warning" | "success" | "info";
   isLoading?: boolean;
   error?: string | null;
   /** Turns the whole tile into a link to a detail page. */
@@ -55,7 +55,15 @@ export function StatTile({
   return (
     <article
       className={`group/tile relative min-w-0 overflow-hidden rounded-lg border p-4 text-card-foreground shadow-[var(--shadow-card)] ${
-        status === "critical" ? "gradient-kpi-critical" : "gradient-kpi"
+        status === "critical"
+          ? "gradient-kpi-critical"
+          : status === "warning"
+            ? "gradient-kpi-warning"
+            : status === "success"
+              ? "gradient-kpi-success"
+              : status === "info"
+                ? "gradient-kpi border-info/30"
+                : "gradient-kpi"
       } ${
         href
           ? "transition-colors hover:border-primary/40 focus-within:border-primary/40"

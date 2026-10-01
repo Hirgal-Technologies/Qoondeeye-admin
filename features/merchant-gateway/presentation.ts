@@ -90,9 +90,16 @@ export function gatewayHeadline(counts: MerchantGatewayCounts) {
 }
 
 export function gatewayHeadlineIsCritical(counts: MerchantGatewayCounts) {
-  return (
-    counts.offline > 0 || counts.degraded > 0 || counts.revoked > 0 || counts.unknown > 0
-  );
+  return counts.offline > 0 || counts.revoked > 0;
+}
+
+export function gatewayHeadlineTone(
+  counts: MerchantGatewayCounts,
+): "critical" | "warning" | "success" | "default" {
+  if (counts.offline > 0 || counts.revoked > 0) return "critical";
+  if (counts.degraded > 0 || counts.unknown > 0) return "warning";
+  if (counts.online > 0) return "success";
+  return "default";
 }
 
 export function formatMoney(cents: number | null | undefined, currency: string | null) {
@@ -222,6 +229,10 @@ export function alertLabel(kind: string) {
     gateway_offline: "Gateway offline",
     gateway_recovered: "Gateway recovered",
     gateway_degraded: "Gateway degraded",
+    fulfillment_held: "Fulfillment held",
+    fulfillment_recovered: "Fulfillment recovered",
+    paid_stuck: "Paid order stuck",
+    recharge_uncertain: "Recharge uncertain",
     sim_missing: "SIM missing",
     evc_sim_missing: "EVC Plus SIM missing",
     edahab_sim_missing: "eDahab SIM missing",
@@ -235,10 +246,29 @@ export function alertLabel(kind: string) {
 }
 
 export function alertTone(kind: string): GatewayHistoryItem["tone"] {
-  if (kind === "gateway_recovered") return "success";
-  if (kind === "gateway_degraded") return "warning";
-  if (kind === "gateway_offline" || kind.includes("sim")) return "critical";
+  if (kind === "gateway_recovered" || kind === "fulfillment_recovered") return "success";
+  if (
+    kind === "gateway_degraded" ||
+    kind === "fulfillment_held" ||
+    kind === "paid_stuck"
+  ) {
+    return "warning";
+  }
+  if (kind === "gateway_offline" || kind === "recharge_uncertain" || kind.includes("sim")) {
+    return "critical";
+  }
   return "neutral";
+}
+
+export function alertCategory(kind: string): GatewayHistoryItem["category"] {
+  if (kind.startsWith("gateway") || kind.includes("sim")) return "gateway";
+  if (kind === "payment" || kind.startsWith("payment_")) return "payment";
+  return "fulfillment";
+}
+
+export function alertLifecycle(kind: string): GatewayHistoryItem["lifecycle"] {
+  if (kind === "gateway_recovered" || kind === "fulfillment_recovered") return "resolved";
+  return "active";
 }
 
 export function transitionTone(toStatus: string): GatewayHistoryItem["tone"] {
@@ -249,7 +279,13 @@ export function transitionTone(toStatus: string): GatewayHistoryItem["tone"] {
   return "neutral";
 }
 
-const SAFE_ALERT_FIELDS = new Set(["reason", "status", "sim", "network_type"]);
+const SAFE_ALERT_FIELDS = new Set([
+  "reason",
+  "status",
+  "sim",
+  "network_type",
+  "destinationMasked",
+]);
 
 export function alertDetail(payload: unknown) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {

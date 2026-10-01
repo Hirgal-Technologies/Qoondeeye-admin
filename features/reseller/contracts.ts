@@ -61,6 +61,8 @@ export type ResellerTransaction = {
   status: string;
   createdAt: string;
   bundle: ResellerTransactionBundle;
+  qoondeeyeOrderId: string | null;
+  qoondeeyeOrderLookup: "matched" | "none" | "unavailable";
 };
 
 export type ResellerBusiness = {

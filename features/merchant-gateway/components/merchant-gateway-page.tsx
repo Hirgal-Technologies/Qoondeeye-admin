@@ -17,6 +17,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { PageHeading } from "@/components/dashboard/PageHeading";
 import { StatTile } from "@/components/dashboard/StatTile";
 import { StatePanel } from "@/components/states/StatePanel";
+import { PaidOrdersPanel } from "@/features/merchant-gateway/components/paid-orders-panel";
 import type {
   BundleOrderSnapshot,
   GatewayHistory,
@@ -24,10 +25,19 @@ import type {
   MerchantGatewayDevice,
   MerchantGatewaySummary,
   MerchantPaymentEvent,
+  PaidFulfillmentOrder,
   PaymentReviewFilter,
   ReconciliationContext,
   ReconciliationResult,
 } from "@/features/merchant-gateway/contracts";
+import {
+  displayOptionalCount,
+  maskPhone,
+  paidOrderBucket,
+  simDisplay,
+  alertMatchesFilter,
+  type AlertFilter,
+} from "@/features/merchant-gateway/operations";
 import {
   PAYMENT_REVIEW_FILTERS,
   buildReconcileRequest,
@@ -39,24 +49,21 @@ import {
   formatNetwork,
   formatPaymentMethod,
   formatRelativeTime,
-  formatSim,
   formatTimestamp,
   fulfillmentResultCopy,
   gatewayHeadline,
-  gatewayHeadlineIsCritical,
+  gatewayHeadlineTone,
   inferAuthorizedPaymentMethods,
   inspectReconciliation,
-  isLabGateway,
   isOrderExpired,
   operationalDevices,
   parseMerchantSection,
   parsePaymentReviewFilter,
   paymentFilterLabel,
-  paymentMethodHintLabel,
   reconciliationErrorMessage,
   shouldRefreshReconciliation,
-  simRowLabel,
 } from "@/features/merchant-gateway/presentation";
+import { SafeguardsPanel } from "@/features/operations/components/safeguards-panel";
 import { formatInteger } from "@/lib/formatters";
 import { useApiData } from "@/lib/hooks/useApiData";
 
@@ -114,9 +121,15 @@ function AuthorizedMerchantGateway({ canReconcile }: { canReconcile: boolean }) 
       <PageHeading
         eyebrow="Operations"
         title="Merchant gateway"
-        description="Review gateway health and merchant payments. Confirmation is sent to the backend. This dashboard does not call TopTayo."
+        description="Live gateway health, paid orders waiting for a bundle, and payment reconciliation."
         actions={
-          <button
+          <div className="flex items-center gap-3">
+            {summary.status === "success" ? (
+              <p className="text-[11px] text-muted-foreground">
+                Updated {formatTimestamp(summary.data.generatedAt)}
+              </p>
+            ) : null}
+            <button
             type="button"
             onClick={() => {
               summary.retry();
@@ -129,6 +142,7 @@ function AuthorizedMerchantGateway({ canReconcile }: { canReconcile: boolean }) 
             <RefreshCw aria-hidden="true" className="size-3.5" />
             Refresh
           </button>
+          </div>
         }
       />
 
@@ -136,7 +150,7 @@ function AuthorizedMerchantGateway({ canReconcile }: { canReconcile: boolean }) 
         <h2 id="merchant-summary" className="sr-only">
           Merchant gateway summary
         </h2>
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
           <StatTile
             icon={Signal}
             label="Gateway status"
@@ -146,17 +160,38 @@ function AuthorizedMerchantGateway({ canReconcile }: { canReconcile: boolean }) 
                 ? `${formatInteger.format(gatewayCount)} ${gatewayCount === 1 ? "gateway" : "gateways"}`
                 : undefined
             }
-            status={counts && gatewayHeadlineIsCritical(counts) ? "critical" : "default"}
+            status={counts ? gatewayHeadlineTone(counts) : "default"}
             href="/dashboard/merchant-gateway?section=gateways"
             isLoading={summary.status === "loading"}
             error={summary.status === "error" ? summary.error : null}
           />
           <StatTile
             icon={ClipboardList}
-            label="Pending orders"
-            value={counts ? formatInteger.format(counts.pendingOrders) : undefined}
-            sublabel="Awaiting payment"
+            label="Paid awaiting fulfillment"
+            value={counts ? formatInteger.format(counts.paidAwaitingFulfillment) : undefined}
+            sublabel="Payment confirmed, bundle open"
+            status={counts && counts.paidAwaitingFulfillment > 0 ? "warning" : "default"}
+            href="/dashboard/merchant-gateway?section=gateways#fulfillment"
+            isLoading={summary.status === "loading"}
+            error={summary.status === "error" ? summary.error : null}
+          />
+          <StatTile
+            icon={ShieldAlert}
+            label="Recharge uncertain"
+            value={counts ? formatInteger.format(counts.rechargeUncertain) : undefined}
+            sublabel="Do not send another recharge"
+            status={counts && counts.rechargeUncertain > 0 ? "warning" : "default"}
             href="/dashboard/merchant-gateway?section=reconciliation"
+            isLoading={summary.status === "loading"}
+            error={summary.status === "error" ? summary.error : null}
+          />
+          <StatTile
+            icon={TriangleAlert}
+            label="Fulfillment held"
+            value={counts ? formatInteger.format(counts.fulfillmentHeld) : undefined}
+            sublabel="Paid, waiting on a safeguard"
+            status={counts && counts.fulfillmentHeld > 0 ? "warning" : "default"}
+            href="/dashboard/merchant-gateway?section=gateways#fulfillment"
             isLoading={summary.status === "loading"}
             error={summary.status === "error" ? summary.error : null}
           />
@@ -165,7 +200,7 @@ function AuthorizedMerchantGateway({ canReconcile }: { canReconcile: boolean }) 
             label="Unmatched payments"
             value={counts ? formatInteger.format(counts.unmatchedPayments) : undefined}
             sublabel="No order attached"
-            status={counts && counts.unmatchedPayments > 0 ? "critical" : "default"}
+            status={counts && counts.unmatchedPayments > 0 ? "warning" : "default"}
             href="/dashboard/merchant-gateway?section=payments&status=UNMATCHED"
             isLoading={summary.status === "loading"}
             error={summary.status === "error" ? summary.error : null}
@@ -175,28 +210,22 @@ function AuthorizedMerchantGateway({ canReconcile }: { canReconcile: boolean }) 
             label="Ambiguous payments"
             value={counts ? formatInteger.format(counts.ambiguousPayments) : undefined}
             sublabel="More than one possible order"
-            status={counts && counts.ambiguousPayments > 0 ? "critical" : "default"}
+            status={counts && counts.ambiguousPayments > 0 ? "warning" : "default"}
             href="/dashboard/merchant-gateway?section=payments&status=AMBIGUOUS"
             isLoading={summary.status === "loading"}
             error={summary.status === "error" ? summary.error : null}
           />
           <StatTile
-            icon={ShieldAlert}
-            label="Manual review"
-            value={counts ? formatInteger.format(counts.manualReviewPayments) : undefined}
-            sublabel="Waiting for an operator"
-            status={counts && counts.manualReviewPayments > 0 ? "critical" : "default"}
-            href="/dashboard/merchant-gateway?section=payments&status=MANUAL_REVIEW"
-            isLoading={summary.status === "loading"}
-            error={summary.status === "error" ? summary.error : null}
-          />
-          <StatTile
-            icon={TriangleAlert}
-            label="Failed fulfillment"
-            value={counts ? formatInteger.format(counts.failedFulfillment) : undefined}
-            sublabel="Failed or uncertain bundle delivery"
-            status={counts && counts.failedFulfillment > 0 ? "critical" : "default"}
-            href="/dashboard/merchant-gateway?section=gateways#fulfillment"
+            icon={Bell}
+            label="Active alerts"
+            value={counts ? formatInteger.format(counts.activeAlerts) : undefined}
+            sublabel={
+              summary.status === "success" && !summary.data.fulfillmentAlertsAvailable
+                ? "Fulfillment alerts unavailable"
+                : "Gateway and open fulfillment alerts"
+            }
+            status={counts && counts.activeAlerts > 0 ? "warning" : "default"}
+            href="/dashboard/merchant-gateway?section=alerts"
             isLoading={summary.status === "loading"}
             error={summary.status === "error" ? summary.error : null}
           />
@@ -238,6 +267,12 @@ function AuthorizedMerchantGateway({ canReconcile }: { canReconcile: boolean }) 
         <GatewaysPanel
           summary={summary}
           onRetry={summary.retry}
+          onRefresh={() => {
+            summary.retry();
+            payments.retry();
+            reconciliation.retry();
+          }}
+          onReconcile={() => openSection("reconciliation")}
         />
       ) : null}
       {section === "payments" ? (
@@ -248,11 +283,22 @@ function AuthorizedMerchantGateway({ canReconcile }: { canReconcile: boolean }) 
           onRetry={payments.retry}
         />
       ) : null}
-      {section === "alerts" ? <AlertsPanel history={history} onRetry={history.retry} /> : null}
+      {section === "alerts" ? (
+        <AlertsPanel
+          history={history}
+          onRetry={history.retry}
+          fulfillmentAlertsAvailable={
+            summary.status === "success" ? summary.data.fulfillmentAlertsAvailable : true
+          }
+        />
+      ) : null}
       {section === "reconciliation" ? (
         <ReconciliationPanel
           canReconcile={canReconcile}
           context={reconciliation}
+          paidOrders={summary.status === "success" ? summary.data.paidOrders : null}
+          recentCompleted={summary.status === "success" ? summary.data.recentCompleted : null}
+          ordersState={summary.status}
           onRetry={reconciliation.retry}
           onRefresh={() => {
             summary.retry();
@@ -268,25 +314,54 @@ function AuthorizedMerchantGateway({ canReconcile }: { canReconcile: boolean }) 
 function GatewaysPanel({
   summary,
   onRetry,
+  onRefresh,
+  onReconcile,
 }: {
   summary: ReturnType<typeof useApiData<MerchantGatewaySummary>>;
   onRetry: () => void;
+  onRefresh: () => void;
+  onReconcile: () => void;
 }) {
+  const [revokeTarget, setRevokeTarget] = useState<MerchantGatewayDevice | null>(null);
+  const [revokeError, setRevokeError] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState(false);
   const productionDevices =
     summary.status === "success" ? operationalDevices(summary.data.devices) : [];
-  const labDevices =
-    summary.status === "success"
-      ? summary.data.devices.filter((device) => isLabGateway(device))
-      : [];
+  const historicalDevices = summary.status === "success" ? summary.data.historicalDevices : [];
+
+  async function confirmRevoke() {
+    if (!revokeTarget) return;
+    setRevoking(true);
+    setRevokeError(null);
+    try {
+      const response = await fetch("/api/merchant-gateway/revoke", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ deviceId: revokeTarget.id }),
+      });
+      const payload = (await response.json().catch(() => null)) as { error?: string | null } | null;
+      if (!response.ok || payload?.error) {
+        setRevokeError(payload?.error || "Qoondeeye did not revoke the gateway.");
+        return;
+      }
+      setRevokeTarget(null);
+      onRefresh();
+    } catch {
+      setRevokeError("Qoondeeye could not be reached. The gateway was not revoked.");
+    } finally {
+      setRevoking(false);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4">
+      {summary.status === "success" ? (
+        <SafeguardsPanel view={summary.data.safeguards} />
+      ) : null}
       <section className="rounded-lg border bg-card p-4 shadow-[var(--shadow-card)] sm:p-5">
         <h2 className="text-sm font-semibold text-foreground">Gateway devices</h2>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          Heartbeat, battery, and only the payment SIMs each device is authorized to
-          watch. Lab simulators are listed separately so they do not look like live
-          outages.
+          Server health is authoritative. A payment method that is not authorized is shown as not configured.
         </p>
         <div className="mt-4">
           {summary.status === "loading" ? <CardSkeleton /> : null}
@@ -294,7 +369,7 @@ function GatewaysPanel({
             <StatePanel
               compact
               kind="error"
-              title="Gateways could not be loaded"
+              title="Gateway data unavailable"
               description={summary.error}
               actionLabel="Try again"
               onAction={onRetry}
@@ -317,153 +392,172 @@ function GatewaysPanel({
         </div>
       </section>
 
-      {summary.status === "success" && labDevices.length > 0 ? (
-        <section className="rounded-lg border border-dashed bg-card/60 p-4 sm:p-5">
-          <h2 className="text-sm font-semibold text-foreground">Lab / simulator</h2>
+      {summary.status === "success" && historicalDevices.length > 0 ? (
+        <section className="rounded-lg border bg-card p-4 shadow-[var(--shadow-card)] sm:p-5">
+          <h2 className="text-sm font-semibold text-foreground">Revoked and historical gateways</h2>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Development gateways are excluded from the summary status tiles above.
+            Lab and revoked gateways stay out of the active count. Revoke keeps history and does not delete the device.
           </p>
           <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
-            {labDevices.map((device) => (
-              <GatewayCard device={device} key={device.id} lab />
+            {historicalDevices.map((device) => (
+              <article key={device.id} className="rounded-lg border bg-background p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <h3 className="truncate text-sm font-semibold text-foreground">{device.name}</h3>
+                    <p className="mt-1 font-mono text-[11px] text-muted-foreground">{device.id}</p>
+                  </div>
+                  <GatewayStatusBadge status={device.status} />
+                </div>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Last heartbeat {formatRelativeTime(device.lastHeartbeatAt)}
+                </p>
+                {device.status !== "REVOKED" ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRevokeError(null);
+                      setRevokeTarget(device);
+                    }}
+                    className="mt-3 inline-flex h-8 items-center rounded-md border px-2.5 text-[11px] font-medium hover:border-primary/40 hover:text-primary"
+                  >
+                    Revoke gateway
+                  </button>
+                ) : (
+                  <p className="mt-3 text-xs text-muted-foreground">Revoked. History is kept.</p>
+                )}
+              </article>
             ))}
           </div>
         </section>
       ) : null}
 
-      <section
-        id="fulfillment"
-        className="scroll-mt-24 rounded-lg border bg-card p-4 shadow-[var(--shadow-card)] sm:p-5"
-      >
-        <h2 className="text-sm font-semibold text-foreground">Failed or uncertain fulfillment</h2>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          Bundle orders whose delivery failed, is uncertain, or recorded a failure after payment.
-        </p>
-        <div className="mt-4">
-          {summary.status === "loading" ? <CardSkeleton /> : null}
-          {summary.status === "error" ? (
-            <StatePanel
-              compact
-              kind="error"
-              title="Fulfillment status could not be loaded"
-              description={summary.error}
-              actionLabel="Try again"
-              onAction={onRetry}
-            />
-          ) : null}
-          {summary.status === "success" && summary.data.fulfillmentExceptions.length === 0 ? (
-            <StatePanel
-              compact
-              title="No fulfillment exceptions"
-              description="Paid orders with a failed or uncertain delivery will show up here."
-            />
-          ) : null}
-          {summary.status === "success" && summary.data.fulfillmentExceptions.length > 0 ? (
-            <div className="overflow-auto rounded-md border">
-              <table className="w-full min-w-[640px] text-left text-xs">
-                <thead>
-                  <tr className="border-b bg-[hsl(var(--surface-table-head))] text-muted-foreground">
-                    <th className="px-3 py-2.5 font-medium">Bundle</th>
-                    <th className="px-3 py-2.5 font-medium">Payment</th>
-                    <th className="px-3 py-2.5 font-medium">Fulfillment</th>
-                    <th className="px-3 py-2.5 font-medium">Failure</th>
-                    <th className="px-3 py-2.5 font-medium">Updated</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {summary.data.fulfillmentExceptions.map((order) => (
-                    <tr className="border-b last:border-0" key={order.id}>
-                      <td className="px-3 py-3 font-medium">{order.bundleName}</td>
-                      <td className="px-3 py-3">{formatStatusLabel(order.paymentStatus)}</td>
-                      <td className="px-3 py-3">
-                        <StatusPill value={order.fulfillmentStatus} kind="fulfillment" />
-                      </td>
-                      <td className="px-3 py-3 text-muted-foreground">
-                        {order.failureCode ? formatStatusLabel(order.failureCode) : "—"}
-                      </td>
-                      <td className="whitespace-nowrap px-3 py-3 text-muted-foreground">
-                        {formatTimestamp(order.updatedAt)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+      {revokeTarget ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="revoke-gateway-title"
+            className="w-full max-w-md rounded-lg border bg-card p-5 shadow-[var(--shadow-dialog)]"
+          >
+            <h3 id="revoke-gateway-title" className="text-sm font-semibold">
+              Revoke gateway
+            </h3>
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              This marks the gateway revoked in Qoondeeye. Payment history stays. Confirm this is the device you intend to revoke.
+            </p>
+            <dl className="mt-3 grid gap-2 text-xs">
+              <div>
+                <dt className="text-[11px] text-muted-foreground">Name</dt>
+                <dd className="mt-0.5 font-medium text-foreground">{revokeTarget.name}</dd>
+              </div>
+              <div>
+                <dt className="text-[11px] text-muted-foreground">Device id</dt>
+                <dd className="mt-0.5 font-mono text-foreground">{revokeTarget.id}</dd>
+              </div>
+            </dl>
+            {revokeError ? <p className="mt-3 text-xs text-critical">{revokeError}</p> : null}
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                type="button"
+                disabled={revoking}
+                onClick={() => setRevokeTarget(null)}
+                className="inline-flex h-9 items-center rounded-md border px-3 text-xs font-medium"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={revoking}
+                onClick={() => void confirmRevoke()}
+                className="inline-flex h-9 items-center rounded-md border border-critical/40 px-3 text-xs font-medium text-critical disabled:opacity-50"
+              >
+                {revoking ? "Revoking…" : "Revoke gateway"}
+              </button>
             </div>
-          ) : null}
+          </div>
         </div>
-      </section>
+      ) : null}
+
+      {summary.status === "success" ? (
+        <PaidOrdersPanel
+          orders={summary.data.paidOrders}
+          reservationStateAvailable={summary.data.reservationStateAvailable}
+          manualHistory={summary.data.manualHistory}
+          manualHistoryAvailable={summary.data.manualHistoryAvailable}
+          onRefresh={onRefresh}
+          onReconcile={onReconcile}
+        />
+      ) : null}
     </div>
   );
 }
 
-function GatewayCard({
-  device,
-  lab = false,
-}: {
-  device: MerchantGatewayDevice;
-  lab?: boolean;
-}) {
+function GatewayCard({ device }: { device: MerchantGatewayDevice }) {
   const authorized = inferAuthorizedPaymentMethods(device.receiverMsisdns);
-  const simMethods: Array<"evc_plus" | "edahab"> =
-    authorized.length > 0 ? authorized : ["evc_plus", "edahab"];
+  const sims = (["edahab", "evc_plus"] as const).map((method) =>
+    simDisplay(
+      method,
+      authorized,
+      method === "evc_plus" ? device.evcSimDetected : device.edahabSimDetected,
+    ),
+  );
+  const statusReason =
+    device.status === "DEGRADED" || device.status === "OFFLINE" || device.status === "REVOKED"
+      ? device.statusReason || "Not reported"
+      : null;
 
   return (
-    <article
-      className={`rounded-lg border bg-background p-4 ${lab ? "opacity-90" : ""}`}
-    >
+    <article className="rounded-lg border bg-background p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold text-foreground">{device.name}</h3>
           <p className="mt-1 text-[11px] text-muted-foreground">
-            App {device.appVersion || "—"}
-            {lab ? " · Lab device" : ""}
-            {device.uploadFailures > 0
-              ? ` · ${formatInteger.format(device.uploadFailures)} upload failures`
-              : ""}
+            {authorized.length > 0
+              ? authorized.map((method) => (method === "edahab" ? "eDahab" : "EVC Plus")).join(" · ")
+              : "Authorized methods not reported"}
           </p>
         </div>
         <GatewayStatusBadge status={device.status} />
       </div>
       <dl className="mt-4 grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
+        {sims.map((sim) => (
+          <div key={sim.label}>
+            <dt className="text-[11px] text-muted-foreground">{sim.label}</dt>
+            <dd
+              className={`mt-0.5 font-medium ${
+                sim.tone === "success"
+                  ? "text-success"
+                  : sim.tone === "critical"
+                    ? "text-critical"
+                    : "text-muted-foreground"
+              }`}
+            >
+              {sim.value}
+            </dd>
+          </div>
+        ))}
         <Fact
-          label="Last heartbeat"
-          value={`${formatRelativeTime(device.lastHeartbeatAt)} · ${formatTimestamp(device.lastHeartbeatAt)}`}
+          label="Receiver"
+          value={
+            device.receiverMsisdns.length > 0
+              ? device.receiverMsisdns.map((value) => maskPhone(value)).join(", ")
+              : "—"
+          }
         />
+        <Fact label="Heartbeat" value={formatRelativeTime(device.lastHeartbeatAt)} />
+        <Fact label="Last payment" value={formatRelativeTime(device.lastMerchantEventAt)} />
+        <Fact label="Pending uploads" value={displayOptionalCount(device.pendingUploadCount)} />
+        <Fact label="Network" value={formatNetwork(device.networkConnected, device.networkType)} />
         <Fact
           label="Battery"
           value={`${formatBattery(device.batteryPercent)} · ${formatCharging(device.isCharging)}`}
         />
-        <Fact
-          label="Network"
-          value={formatNetwork(device.networkConnected, device.networkType)}
-        />
-        <Fact label="Last SMS" value={formatTimestamp(device.lastSmsReceivedAt)} />
-        {simMethods.map((method) => (
-          <div key={method}>
-            <dt className="text-[11px] text-muted-foreground">{simRowLabel(method)}</dt>
-            <dd className="mt-0.5">
-              <SimState
-                detected={
-                  method === "evc_plus" ? device.evcSimDetected : device.edahabSimDetected
-                }
-              />
-            </dd>
-          </div>
-        ))}
-        <Fact label="Last merchant event" value={formatTimestamp(device.lastMerchantEventAt)} />
-        <Fact label="Last backend acknowledgement" value={formatTimestamp(device.lastBackendAckAt)} />
+        <Fact label="App version" value={device.appVersion || "Not reported"} />
+        <Fact label="Last acknowledgement" value={formatRelativeTime(device.lastBackendAckAt)} />
+        <Fact label="Last successful upload" value={formatTimestamp(device.lastSuccessfulUploadAt) === "—" ? "Not reported" : formatTimestamp(device.lastSuccessfulUploadAt)} />
       </dl>
-      {authorized.length > 0 ? (
-        <p className="mt-4 text-[11px] leading-5 text-muted-foreground">
-          Authorized {authorized.map(paymentMethodHintLabel).join(", ")}
-          {device.receiverMsisdns.length > 0
-            ? ` · Watching ${device.receiverMsisdns.join(", ")}`
-            : ""}
-        </p>
-      ) : device.receiverMsisdns.length > 0 ? (
-        <p className="mt-4 text-[11px] leading-5 text-muted-foreground">
-          Watching {device.receiverMsisdns.join(", ")}
-        </p>
+      {statusReason ? (
+        <p className="mt-3 text-[11px] leading-5 text-muted-foreground">Reason: {statusReason}</p>
       ) : null}
     </article>
   );
@@ -656,81 +750,78 @@ function PaymentInspection({ event }: { event: MerchantPaymentEvent }) {
 function AlertsPanel({
   history,
   onRetry,
+  fulfillmentAlertsAvailable,
 }: {
   history: ReturnType<typeof useApiData<GatewayHistory>>;
   onRetry: () => void;
+  fulfillmentAlertsAvailable: boolean;
 }) {
-  return (
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-      <HistoryCard
-        title="Gateway alerts"
-        description="Offline, recovered, degraded, missing SIM, and any other gateway health alert already stored."
-        items={history.status === "success" ? history.data.alerts : []}
-        status={history.status}
-        error={history.status === "error" ? history.error : null}
-        emptyTitle="No gateway alerts"
-        emptyDescription="Health alerts appear here when a gateway goes offline, recovers, degrades, or loses a SIM."
-        onRetry={onRetry}
-      />
-      <HistoryCard
-        title="Health transitions"
-        description="Recorded status changes for each gateway."
-        items={history.status === "success" ? history.data.transitions : []}
-        status={history.status}
-        error={history.status === "error" ? history.error : null}
-        emptyTitle="No health transitions"
-        emptyDescription="Status changes such as online to offline will be listed here."
-        onRetry={onRetry}
-      />
-    </div>
-  );
-}
+  const [filter, setFilter] = useState<AlertFilter>("active");
+  const items =
+    history.status === "success"
+      ? [...history.data.alerts, ...history.data.transitions]
+      : [];
+  const visible = items.filter((item) => alertMatchesFilter(item, filter));
+  const filters: AlertFilter[] = ["active", "resolved", "gateway", "payment", "fulfillment"];
 
-function HistoryCard({
-  title,
-  description,
-  items,
-  status,
-  error,
-  emptyTitle,
-  emptyDescription,
-  onRetry,
-}: {
-  title: string;
-  description: string;
-  items: GatewayHistoryItem[];
-  status: "loading" | "error" | "success";
-  error: string | null;
-  emptyTitle: string;
-  emptyDescription: string;
-  onRetry: () => void;
-}) {
   return (
     <section className="rounded-lg border bg-card p-4 shadow-[var(--shadow-card)] sm:p-5">
-      <h2 className="text-sm font-semibold text-foreground">{title}</h2>
-      <p className="mt-1 text-xs leading-5 text-muted-foreground">{description}</p>
+      <h2 className="text-sm font-semibold text-foreground">Alerts</h2>
+      <p className="mt-1 text-xs leading-5 text-muted-foreground">
+        Stored gateway and fulfillment alerts. This page does not create alerts.
+      </p>
+      {!fulfillmentAlertsAvailable ? (
+        <p className="mt-2 text-xs text-muted-foreground">Fulfillment alerts unavailable</p>
+      ) : null}
+      <div
+        role="tablist"
+        aria-label="Alert filters"
+        className="mt-4 flex w-fit max-w-full flex-wrap gap-1 rounded-lg border bg-muted/30 p-1"
+      >
+        {filters.map((item) => (
+          <button
+            key={item}
+            type="button"
+            role="tab"
+            aria-selected={filter === item}
+            onClick={() => setFilter(item)}
+            className={`inline-flex h-8 items-center rounded-md px-3 text-xs font-medium capitalize ${
+              filter === item
+                ? "gradient-button text-primary-foreground shadow-sm"
+                : "text-muted-foreground hover:bg-background hover:text-foreground"
+            }`}
+          >
+            {item}
+          </button>
+        ))}
+      </div>
       <div className="mt-4">
-        {status === "loading" ? <CardSkeleton /> : null}
-        {status === "error" ? (
+        {history.status === "loading" ? <CardSkeleton /> : null}
+        {history.status === "error" ? (
           <StatePanel
             compact
             kind="error"
-            title={`${title} could not be loaded`}
-            description={error ?? "Something went wrong."}
+            title="Alerts could not be loaded"
+            description={history.error}
             actionLabel="Try again"
             onAction={onRetry}
           />
         ) : null}
-        {status === "success" && items.length === 0 ? (
-          <StatePanel compact title={emptyTitle} description={emptyDescription} />
+        {history.status === "success" && visible.length === 0 ? (
+          <StatePanel
+            compact
+            title={filter === "active" ? "No pending alerts" : `No ${filter} alerts`}
+            description="Stored alerts for this filter will appear here."
+          />
         ) : null}
-        {status === "success" && items.length > 0 ? (
+        {history.status === "success" && visible.length > 0 ? (
           <ul className="divide-y rounded-md border">
-            {items.map((item) => (
+            {visible.map((item) => (
               <li key={item.id} className="flex items-start justify-between gap-3 px-3 py-3">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <HistoryTone tone={item.tone} label={item.label} />
+                    <span className="text-[11px] capitalize text-muted-foreground">{item.category}</span>
                     <span className="text-[11px] text-muted-foreground">{item.deviceName}</span>
                   </div>
                   <p className="mt-1 text-xs text-muted-foreground">{item.detail}</p>
@@ -750,11 +841,17 @@ function HistoryCard({
 function ReconciliationPanel({
   canReconcile,
   context,
+  paidOrders,
+  recentCompleted,
+  ordersState,
   onRetry,
   onRefresh,
 }: {
   canReconcile: boolean;
   context: ReturnType<typeof useApiData<ReconciliationContext>>;
+  paidOrders: PaidFulfillmentOrder[] | null;
+  recentCompleted: PaidFulfillmentOrder[] | null;
+  ordersState: "loading" | "error" | "success";
   onRetry: () => void;
   onRefresh: () => void;
 }) {
@@ -773,6 +870,7 @@ function ReconciliationPanel({
   const decision = event && order ? inspectReconciliation(event, order) : null;
   const comparison = event && order ? compareEventToOrder(event, order) : [];
   const role = canReconcile ? "admin" : "viewer";
+  const orderQueueState = ordersState === "success" ? "ready" : ordersState;
   const confirmEnabled =
     decision != null &&
     canEnableConfirm({
@@ -839,11 +937,74 @@ function ReconciliationPanel({
 
   return (
     <section className="rounded-lg border bg-card p-4 shadow-[var(--shadow-card)] sm:p-5">
-      <h2 className="text-sm font-semibold text-foreground">Manual reconciliation</h2>
+      <h2 className="text-sm font-semibold text-foreground">Reconciliation</h2>
       <p className="mt-1 max-w-3xl text-xs leading-5 text-muted-foreground">
-        Match one unresolved payment to one pending order. The backend rechecks the payment and
-        records the admin who resolved it.
+        Unmatched payments, held fulfillment, and uncertain recharges stay separate. Confirming a match still goes through the audited backend action.
       </p>
+      <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <QueueCard
+          title="Unmatched merchant payments"
+          empty="No unmatched payments"
+          rows={
+            data
+              ? data.unresolvedEvents
+                  .filter((event) => event.status === "UNMATCHED")
+                  .map((event) => paymentQueueLine(event))
+              : []
+          }
+          state={context.status === "success" ? "ready" : context.status}
+        />
+        <QueueCard
+          title="Ambiguous payments"
+          empty="No ambiguous payments"
+          rows={
+            data
+              ? data.unresolvedEvents
+                  .filter((event) => event.status === "AMBIGUOUS")
+                  .map((event) => paymentQueueLine(event))
+              : []
+          }
+          state={context.status === "success" ? "ready" : context.status}
+        />
+        <QueueCard
+          title="Paid fulfillment held"
+          empty="No fulfillment exceptions"
+          rows={(paidOrders ?? [])
+            .filter((order) => paidOrderBucket(order) === "fulfillment_held")
+            .map((order) => orderQueueLine(order))}
+          state={orderQueueState}
+        />
+        <QueueCard
+          title="Recharge uncertain"
+          empty="No recharge uncertain orders"
+          rows={(paidOrders ?? [])
+            .filter((order) => paidOrderBucket(order) === "recharge_uncertain")
+            .map((order) => orderQueueLine(order))}
+          state={orderQueueState}
+        />
+        <QueueCard
+          title="TopTayo processing"
+          empty="No TopTayo processing orders"
+          rows={(paidOrders ?? [])
+            .filter((order) => paidOrderBucket(order) === "toptayo_processing")
+            .map((order) => orderQueueLine(order))}
+          state={orderQueueState}
+        />
+        <QueueCard
+          title="Manually fulfilled"
+          empty="No manually fulfilled orders"
+          rows={[]}
+          state={orderQueueState === "ready" ? "ready" : orderQueueState}
+        />
+        <QueueCard
+          title="Resolved / completed"
+          empty="No completed orders in this window"
+          rows={(recentCompleted ?? []).map((order) => orderQueueLine(order))}
+          state={orderQueueState}
+        />
+      </div>
+
+      <h3 className="mt-6 text-sm font-semibold text-foreground">Manual payment match</h3>
 
       {context.status === "loading" ? (
         <div className="mt-4">
@@ -1096,6 +1257,51 @@ function ReconciliationPanel({
   );
 }
 
+function QueueCard({
+  title,
+  empty,
+  rows,
+  state,
+}: {
+  title: string;
+  empty: string;
+  rows: string[];
+  state: "loading" | "error" | "ready";
+}) {
+  return (
+    <div className="rounded-md border bg-background p-3">
+      <h3 className="text-xs font-semibold text-foreground">{title}</h3>
+      {state === "loading" ? (
+        <p className="mt-2 text-xs text-muted-foreground">Loading…</p>
+      ) : state === "error" ? (
+        <p className="mt-2 text-xs text-muted-foreground">Unavailable</p>
+      ) : rows.length === 0 ? (
+        <p className="mt-2 text-xs text-muted-foreground">{empty}</p>
+      ) : (
+        <ul className="mt-2 space-y-1">
+          {rows.slice(0, 6).map((row, index) => (
+            <li key={`${title}-${index}`} className="truncate text-xs text-foreground">
+              {row}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+function paymentQueueLine(event: MerchantPaymentEvent) {
+  return `${formatPaymentMethod(event.paymentMethod ?? event.provider)} · ${maskPhone(event.payerMsisdn)} · ${formatMoney(event.amountCents, event.currency)} · ${event.merchantReceiverMsisdn ? maskPhone(event.merchantReceiverMsisdn) : "—"} · ${event.providerTxnId || "No provider id"} · ${formatTimestamp(event.receivedAt)}`;
+}
+
+function orderQueueLine(order: PaidFulfillmentOrder) {
+  return `${shortQueueId(order.id)} · ${maskPhone(order.destinationPhone)} · ${formatMoney(order.amountPaidCents, order.currency)} · ${order.bundleName} · ${order.failureCode?.replace(/_/g, " ") || order.fulfillmentStatus}`;
+}
+
+function shortQueueId(value: string) {
+  return value.length > 8 ? `${value.slice(0, 8)}…` : value;
+}
+
 function ReconciliationResultBanner({ result }: { result: ReconciliationResult }) {
   return (
     <div className="rounded-md border bg-success-muted/40 p-4" role="status">
@@ -1271,16 +1477,6 @@ function HistoryTone({ tone, label }: { tone: GatewayHistoryItem["tone"]; label:
       {label}
     </span>
   );
-}
-
-function SimState({ detected }: { detected: boolean | null }) {
-  const className =
-    detected === true
-      ? "font-medium text-success"
-      : detected === false
-        ? "font-medium text-critical"
-        : "text-muted-foreground";
-  return <span className={className}>{formatSim(detected)}</span>;
 }
 
 function Fact({ label, value }: { label: string; value: string }) {
