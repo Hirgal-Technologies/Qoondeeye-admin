@@ -14,6 +14,7 @@ import type {
 import { compareBundlePricing } from "@/features/reseller/pricing";
 import { listPriceOverridesByBundleIds } from "@/features/reseller/server/price-overrides";
 import { toptayoFetch, toptayoPost } from "@/lib/toptayo/client";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export function listProviders(params: CursorListParams) {
   return toptayoFetch<CursorPage<ResellerProvider>>("/api/v1/providers", {
@@ -71,8 +72,8 @@ async function attachCatalogPricing(
   };
 }
 
-export function listTransactions(params: CursorListParams) {
-  return toptayoFetch<CursorPage<ResellerTransaction>>(
+export async function listTransactions(params: CursorListParams) {
+  const page = await toptayoFetch<CursorPage<ResellerTransaction>>(
     "/api/v1/transactions",
     {
       q: params.q,
@@ -80,6 +81,11 @@ export function listTransactions(params: CursorListParams) {
       limit: params.limit,
     },
   );
+  const transactions = Array.isArray(page.data) ? page.data : [];
+  return {
+    ...page,
+    data: await attachQoondeeyeOrders(transactions),
+  };
 }
 
 export function getTransaction(id: string) {
@@ -90,6 +96,47 @@ export function getTransaction(id: string) {
 
 export function getBusiness() {
   return toptayoFetch<ResellerBusiness>("/api/v1/businesses/me");
+}
+
+async function attachQoondeeyeOrders(
+  transactions: ResellerTransaction[],
+): Promise<ResellerTransaction[]> {
+  const ids = transactions.map((row) => String(row.id)).filter((id) => id.length > 0);
+  if (ids.length === 0) return transactions;
+  try {
+    const db = createAdminClient();
+    const { data, error } = await db
+      .from("bundle_purchase_orders")
+      .select("id, top_tayo_transaction_ids")
+      .overlaps("top_tayo_transaction_ids", ids);
+    if (error) {
+      return transactions.map((row) => ({
+        ...row,
+        qoondeeyeOrderId: null,
+        qoondeeyeOrderLookup: "unavailable" as const,
+      }));
+    }
+    const byTransaction = new Map<string, string>();
+    for (const row of (data ?? []) as Array<{ id: string; top_tayo_transaction_ids: string[] | null }>) {
+      for (const transactionId of row.top_tayo_transaction_ids ?? []) {
+        if (!byTransaction.has(transactionId)) byTransaction.set(transactionId, String(row.id));
+      }
+    }
+    return transactions.map((row) => {
+      const orderId = byTransaction.get(String(row.id)) ?? null;
+      return {
+        ...row,
+        qoondeeyeOrderId: orderId,
+        qoondeeyeOrderLookup: orderId ? ("matched" as const) : ("none" as const),
+      };
+    });
+  } catch {
+    return transactions.map((row) => ({
+      ...row,
+      qoondeeyeOrderId: null,
+      qoondeeyeOrderLookup: "unavailable" as const,
+    }));
+  }
 }
 
 export function createRecharge(input: RechargeInput) {

@@ -90,9 +90,16 @@ export function gatewayHeadline(counts: MerchantGatewayCounts) {
 }
 
 export function gatewayHeadlineIsCritical(counts: MerchantGatewayCounts) {
-  return (
-    counts.offline > 0 || counts.degraded > 0 || counts.revoked > 0 || counts.unknown > 0
-  );
+  return counts.offline > 0 || counts.revoked > 0;
+}
+
+export function gatewayHeadlineTone(
+  counts: MerchantGatewayCounts,
+): "critical" | "warning" | "success" | "default" {
+  if (counts.offline > 0 || counts.revoked > 0) return "critical";
+  if (counts.degraded > 0 || counts.unknown > 0) return "warning";
+  if (counts.online > 0) return "success";
+  return "default";
 }
 
 export function formatMoney(cents: number | null | undefined, currency: string | null) {
@@ -145,6 +152,73 @@ export function formatSim(value: boolean | null) {
   return "Unknown";
 }
 
+export type GatewayPaymentMethodHint = "evc_plus" | "edahab";
+
+/**
+ * Infer which payment rails a gateway watches from receiver MSISDN prefixes.
+ * 25261… → EVC Plus, 25262… → eDahab. Display-only; health status still comes
+ * from the backend.
+ */
+export function inferAuthorizedPaymentMethods(
+  receiverMsisdns: readonly string[],
+): GatewayPaymentMethodHint[] {
+  const present = new Set<GatewayPaymentMethodHint>();
+  for (const raw of receiverMsisdns) {
+    const digits = raw.replace(/\D/g, "");
+    const national =
+      digits.startsWith("252") && digits.length >= 12 ? digits.slice(3) : digits;
+    if (national.startsWith("61")) present.add("evc_plus");
+    if (national.startsWith("62")) present.add("edahab");
+  }
+  const ordered: GatewayPaymentMethodHint[] = [];
+  if (present.has("evc_plus")) ordered.push("evc_plus");
+  if (present.has("edahab")) ordered.push("edahab");
+  return ordered;
+}
+
+export function paymentMethodHintLabel(method: GatewayPaymentMethodHint) {
+  return method === "evc_plus" ? "EVC Plus" : "eDahab";
+}
+
+export function simRowLabel(method: GatewayPaymentMethodHint) {
+  return method === "evc_plus" ? "EVC Plus SIM" : "eDahab SIM";
+}
+
+/** Simulator / lab gateways should not drive the summary “offline” headline. */
+export function isLabGateway(device: {
+  name: string;
+  appVersion: string | null;
+  id?: string;
+}): boolean {
+  const hay = `${device.id ?? ""} ${device.name} ${device.appVersion ?? ""}`.toLowerCase();
+  return (
+    hay.includes("simulator") ||
+    hay.includes("simulat") ||
+    hay.includes("lab-gateway") ||
+    hay.includes("dev-gateway")
+  );
+}
+
+export function operationalDevices<T extends { name: string; appVersion: string | null; id?: string }>(
+  devices: readonly T[],
+): T[] {
+  return devices.filter((device) => !isLabGateway(device));
+}
+
+export function formatRelativeTime(value: string | null | undefined, nowMs = Date.now()) {
+  if (!value) return "Never";
+  const then = Date.parse(value);
+  if (!Number.isFinite(then)) return "—";
+  const seconds = Math.floor(Math.max(0, nowMs - then) / 1000);
+  if (seconds < 45) return "Just now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return minutes === 1 ? "1 minute ago" : `${minutes} minutes ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? "1 day ago" : `${days} days ago`;
+}
+
 export function formatBattery(percent: number | null) {
   if (percent == null || !Number.isFinite(percent)) return "—";
   return `${Math.round(percent)}%`;
@@ -155,6 +229,10 @@ export function alertLabel(kind: string) {
     gateway_offline: "Gateway offline",
     gateway_recovered: "Gateway recovered",
     gateway_degraded: "Gateway degraded",
+    fulfillment_held: "Fulfillment held",
+    fulfillment_recovered: "Fulfillment recovered",
+    paid_stuck: "Paid order stuck",
+    recharge_uncertain: "Recharge uncertain",
     sim_missing: "SIM missing",
     evc_sim_missing: "EVC Plus SIM missing",
     edahab_sim_missing: "eDahab SIM missing",
@@ -168,10 +246,29 @@ export function alertLabel(kind: string) {
 }
 
 export function alertTone(kind: string): GatewayHistoryItem["tone"] {
-  if (kind === "gateway_recovered") return "success";
-  if (kind === "gateway_degraded") return "warning";
-  if (kind === "gateway_offline" || kind.includes("sim")) return "critical";
+  if (kind === "gateway_recovered" || kind === "fulfillment_recovered") return "success";
+  if (
+    kind === "gateway_degraded" ||
+    kind === "fulfillment_held" ||
+    kind === "paid_stuck"
+  ) {
+    return "warning";
+  }
+  if (kind === "gateway_offline" || kind === "recharge_uncertain" || kind.includes("sim")) {
+    return "critical";
+  }
   return "neutral";
+}
+
+export function alertCategory(kind: string): GatewayHistoryItem["category"] {
+  if (kind.startsWith("gateway") || kind.includes("sim")) return "gateway";
+  if (kind === "payment" || kind.startsWith("payment_")) return "payment";
+  return "fulfillment";
+}
+
+export function alertLifecycle(kind: string): GatewayHistoryItem["lifecycle"] {
+  if (kind === "gateway_recovered" || kind === "fulfillment_recovered") return "resolved";
+  return "active";
 }
 
 export function transitionTone(toStatus: string): GatewayHistoryItem["tone"] {
@@ -182,7 +279,13 @@ export function transitionTone(toStatus: string): GatewayHistoryItem["tone"] {
   return "neutral";
 }
 
-const SAFE_ALERT_FIELDS = new Set(["reason", "status", "sim", "network_type"]);
+const SAFE_ALERT_FIELDS = new Set([
+  "reason",
+  "status",
+  "sim",
+  "network_type",
+  "destinationMasked",
+]);
 
 export function alertDetail(payload: unknown) {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {

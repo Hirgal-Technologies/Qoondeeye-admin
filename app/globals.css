@@ -90,6 +90,12 @@
   --gradient-critical:
     radial-gradient(circle at 100% 0%, hsl(var(--critical) / 0.15), transparent 50%),
     linear-gradient(145deg, hsl(0 0% 100%), hsl(var(--critical-muted) / 0.42));
+  --gradient-warning:
+    radial-gradient(circle at 100% 0%, hsl(var(--warning) / 0.16), transparent 50%),
+    linear-gradient(145deg, hsl(0 0% 100%), hsl(var(--warning-muted) / 0.55));
+  --gradient-success:
+    radial-gradient(circle at 100% 0%, hsl(var(--success) / 0.14), transparent 50%),
+    linear-gradient(145deg, hsl(0 0% 100%), hsl(var(--success-muted) / 0.7));
   --gradient-button: var(--gradient-brand);
   --gradient-button-hover: var(--gradient-brand-hover);
   --glow-kpi:
@@ -200,6 +206,12 @@
   --gradient-critical:
     radial-gradient(circle at 100% 0%, hsl(var(--critical) / 0.2), transparent 50%),
     linear-gradient(145deg, hsl(0 0% 9%), hsl(var(--critical-muted) / 0.44));
+  --gradient-warning:
+    radial-gradient(circle at 100% 0%, hsl(var(--warning) / 0.18), transparent 50%),
+    linear-gradient(145deg, hsl(0 0% 9%), hsl(var(--warning-muted) / 0.55));
+  --gradient-success:
+    radial-gradient(circle at 100% 0%, hsl(var(--success) / 0.16), transparent 50%),
+    linear-gradient(145deg, hsl(0 0% 9%), hsl(var(--success-muted) / 0.7));
   --gradient-button: var(--gradient-brand);
   --gradient-button-hover: var(--gradient-brand-hover);
   --glow-kpi:
@@ -306,6 +318,16 @@ body {
 .gradient-kpi-critical {
   border-color: hsl(var(--critical) / 0.28);
   background-image: var(--gradient-critical);
+}
+
+.gradient-kpi-warning {
+  border-color: hsl(var(--warning) / 0.35);
+  background-image: var(--gradient-warning);
+}
+
+.gradient-kpi-success {
+  border-color: hsl(var(--success) / 0.28);
+  background-image: var(--gradient-success);
 }
 
 .gradient-header {

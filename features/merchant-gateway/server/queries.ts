@@ -7,73 +7,88 @@ import {
 } from "@/features/merchant-gateway/columns";
 import type {
   BundleOrderSnapshot,
-  FulfillmentException,
   GatewayHistory,
   GatewayHistoryItem,
+  ManualFulfillmentHistoryEntry,
   MerchantGatewayDevice,
   MerchantGatewaySummary,
   MerchantPaymentEvent,
   PaymentReviewFilter,
   ReconciliationContext,
 } from "@/features/merchant-gateway/contracts";
+import { summarizeDeviceCounts } from "@/features/merchant-gateway/operations";
 import {
+  alertCategory,
   alertDetail,
   alertLabel,
+  alertLifecycle,
   alertTone,
+  isLabGateway,
   mapAuditEntry,
   normalizeGatewayStatus,
   transitionTone,
 } from "@/features/merchant-gateway/presentation";
+import { loadPaidFulfillmentBoard } from "@/features/merchant-gateway/server/paid-orders";
+import { getProductionSafeguardView } from "@/features/operations/server/safeguards";
 import { createAdminClient } from "@/lib/supabase/admin";
-
-const FAILED_FULFILLMENT_FILTER =
-  "fulfillment_status.in.(FAILED,UNCERTAIN,UNKNOWN,ERROR),and(failed_at.not.is.null,fulfillment_status.neq.COMPLETED)";
 
 export async function getMerchantGatewaySummary(): Promise<MerchantGatewaySummary> {
   const db = createAdminClient();
-  const [devicesResult, pendingResult, unmatchedResult, ambiguousResult, manualResult, failedResult, exceptionsResult] =
+  const [devicesResult, unmatchedResult, ambiguousResult, paidBoard, safeguards, fulfillmentAlerts, manualHistory] =
     await Promise.all([
       db.from("merchant_gateway_devices").select(MERCHANT_DEVICE_COLUMNS).order("name"),
-      db
-        .from("bundle_purchase_orders")
-        .select("id", { count: "exact", head: true })
-        .eq("payment_status", "PENDING"),
       countMatchStatus("UNMATCHED"),
       countMatchStatus("AMBIGUOUS"),
-      countMatchStatus("MANUAL_REVIEW"),
-      db
-        .from("bundle_purchase_orders")
-        .select("id", { count: "exact", head: true })
-        .or(FAILED_FULFILLMENT_FILTER),
-      db
-        .from("bundle_purchase_orders")
-        .select("id, bundle_name, payment_status, fulfillment_status, failure_code, updated_at")
-        .or(FAILED_FULFILLMENT_FILTER)
-        .order("updated_at", { ascending: false })
-        .limit(20),
+      loadPaidFulfillmentBoard(),
+      getProductionSafeguardView(),
+      loadFulfillmentAlerts(),
+      loadManualHistory(),
     ]);
 
   throwIfError(devicesResult.error);
-  throwIfError(pendingResult.error);
-  throwIfError(failedResult.error);
-  throwIfError(exceptionsResult.error);
 
-  const devices = rows<DeviceRow>(devicesResult.data).map(mapDevice);
+  const allDevices = rows<DeviceRow>(devicesResult.data).map(mapDevice);
+  const reasons = await loadStatusReasons(allDevices.map((device) => device.id));
+  const withReasons = allDevices.map((device) => ({
+    ...device,
+    statusReason: reasons.get(device.id) ?? null,
+  }));
+  const devices = withReasons.filter((device) => !isLabGateway(device) && device.status !== "REVOKED");
+  const historicalDevices = withReasons.filter(
+    (device) => isLabGateway(device) || device.status === "REVOKED",
+  );
+  const deviceCounts = summarizeDeviceCounts(
+    withReasons.map((device) => ({
+      status: device.status,
+      lab: isLabGateway(device),
+    })),
+  );
+
   return {
+    generatedAt: new Date().toISOString(),
     devices,
+    historicalDevices,
+    excludedLabGateways: deviceCounts.excludedLabGateways,
     counts: {
-      online: devices.filter((device) => device.status === "ONLINE").length,
-      degraded: devices.filter((device) => device.status === "DEGRADED").length,
-      offline: devices.filter((device) => device.status === "OFFLINE").length,
-      revoked: devices.filter((device) => device.status === "REVOKED").length,
-      unknown: devices.filter((device) => device.status === "UNKNOWN").length,
-      pendingOrders: pendingResult.count ?? 0,
+      online: deviceCounts.online,
+      degraded: deviceCounts.degraded,
+      offline: deviceCounts.offline,
+      revoked: deviceCounts.revoked,
+      unknown: deviceCounts.unknown,
+      paidAwaitingFulfillment: paidBoard.counts.paidAwaitingFulfillment,
+      rechargeUncertain: paidBoard.counts.rechargeUncertain,
+      fulfillmentHeld: paidBoard.counts.fulfillmentHeld,
       unmatchedPayments: unmatchedResult,
       ambiguousPayments: ambiguousResult,
-      manualReviewPayments: manualResult,
-      failedFulfillment: failedResult.count ?? 0,
+      activeAlerts: countActiveAlerts(devices, fulfillmentAlerts.rows),
     },
-    fulfillmentExceptions: rows<ExceptionRow>(exceptionsResult.data).map(mapException),
+    paidOrders: paidBoard.paidOrders,
+    recentCompleted: paidBoard.recentCompleted,
+    reservationStateAvailable: paidBoard.reservationStateAvailable,
+    fulfillmentAlertsAvailable: fulfillmentAlerts.available,
+    manualHistory: manualHistory.entries,
+    manualHistoryAvailable: manualHistory.available,
+    safeguards,
   };
 }
 
@@ -116,9 +131,11 @@ export async function getGatewayHistory(): Promise<GatewayHistory> {
   throwIfError(alertsResult.error);
   throwIfError(transitionsResult.error);
 
-  const alerts = ((alertsResult.data ?? []) as AlertRow[]).map((row) =>
-    mapAlert(row, names),
-  );
+  const fulfillment = await loadFulfillmentAlerts();
+  const alerts = [
+    ...((alertsResult.data ?? []) as AlertRow[]).map((row) => mapAlert(row, names)),
+    ...fulfillment.rows.map(mapFulfillmentAlert),
+  ].sort((left, right) => right.at.localeCompare(left.at));
   const transitions = ((transitionsResult.data ?? []) as TransitionRow[]).map((row) =>
     mapTransition(row, names),
   );
@@ -226,6 +243,9 @@ function mapDevice(row: DeviceRow): MerchantGatewayDevice {
     appVersion: row.app_version,
     uploadFailures: row.upload_failures ?? 0,
     revokedAt: row.revoked_at,
+    statusReason: null,
+    pendingUploadCount: null,
+    lastSuccessfulUploadAt: null,
   };
 }
 
@@ -303,26 +323,6 @@ function mapPayment(row: PaymentRow, names: Map<string, string>): MerchantPaymen
   };
 }
 
-type ExceptionRow = {
-  id: string;
-  bundle_name: string | null;
-  payment_status: string | null;
-  fulfillment_status: string | null;
-  failure_code: string | null;
-  updated_at: string | null;
-};
-
-function mapException(row: ExceptionRow): FulfillmentException {
-  return {
-    id: String(row.id),
-    bundleName: row.bundle_name?.trim() || "Bundle order",
-    paymentStatus: row.payment_status ?? "UNKNOWN",
-    fulfillmentStatus: row.fulfillment_status ?? "UNKNOWN",
-    failureCode: row.failure_code,
-    updatedAt: row.updated_at,
-  };
-}
-
 type AlertRow = {
   id: string;
   device_id: string | null;
@@ -340,6 +340,31 @@ function mapAlert(row: AlertRow, names: Map<string, string>): GatewayHistoryItem
     detail: alertDetail(row.payload),
     deviceName: row.device_id ? (names.get(String(row.device_id)) ?? "Gateway") : "Gateway",
     tone: alertTone(kind),
+    category: alertCategory(kind),
+    lifecycle: alertLifecycle(kind),
+  };
+}
+
+type FulfillmentAlertRow = {
+  id: string;
+  order_id: string | null;
+  kind: string | null;
+  payload: unknown;
+  created_at: string;
+};
+
+function mapFulfillmentAlert(row: FulfillmentAlertRow): GatewayHistoryItem {
+  const kind = row.kind ?? "fulfillment_held";
+  const orderId = row.order_id ? String(row.order_id) : "";
+  return {
+    id: String(row.id),
+    at: row.created_at,
+    label: alertLabel(kind),
+    detail: alertDetail(row.payload),
+    deviceName: orderId ? `Order ${orderId.slice(0, 8)}` : "Bundle order",
+    tone: alertTone(kind),
+    category: "fulfillment",
+    lifecycle: alertLifecycle(kind),
   };
 }
 
@@ -363,6 +388,8 @@ function mapTransition(row: TransitionRow, names: Map<string, string>): GatewayH
     detail: reason ? `Reason: ${reason}` : "Gateway health transition",
     deviceName: row.device_id ? (names.get(String(row.device_id)) ?? "Gateway") : "Gateway",
     tone: transitionTone(row.to_status ?? ""),
+    category: "gateway",
+    lifecycle: transitionTone(row.to_status ?? "") === "success" ? "resolved" : "active",
   };
 }
 
@@ -385,6 +412,114 @@ function booleanOrNull(value: unknown) {
 
 function rows<T>(data: unknown): T[] {
   return Array.isArray(data) ? (data as T[]) : [];
+}
+
+async function loadStatusReasons(deviceIds: string[]) {
+  const reasons = new Map<string, string>();
+  if (deviceIds.length === 0) return reasons;
+  const db = createAdminClient();
+  const { data, error } = await db
+    .from("merchant_gateway_health_transitions")
+    .select("device_id, reason, created_at")
+    .in("device_id", deviceIds)
+    .order("created_at", { ascending: false })
+    .limit(200);
+  if (error) return reasons;
+  for (const row of (data ?? []) as Array<{ device_id: string; reason: string | null }>) {
+    const id = String(row.device_id);
+    if (reasons.has(id) || !row.reason?.trim()) continue;
+    reasons.set(id, row.reason.replace(/_/g, " "));
+  }
+  return reasons;
+}
+
+async function loadFulfillmentAlerts() {
+  const db = createAdminClient();
+  const { data, error } = await db
+    .from("bundle_fulfillment_alerts")
+    .select("id, order_id, kind, payload, created_at")
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) return { available: false, rows: [] as FulfillmentAlertRow[] };
+  return { available: true, rows: (data ?? []) as FulfillmentAlertRow[] };
+}
+
+async function loadManualHistory(): Promise<{
+  available: boolean;
+  entries: ManualFulfillmentHistoryEntry[];
+}> {
+  const db = createAdminClient();
+  const { data, error } = await db
+    .from("bundle_manual_fulfillment_audit")
+    .select(
+      "id, order_id, admin_user_id, action, top_tayo_transaction_id, reservation_outcome, fulfillment_status, created_at",
+    )
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (error) return { available: false, entries: [] };
+
+  const auditRows = (data ?? []) as Array<{
+    id: string;
+    order_id: string;
+    admin_user_id: string | null;
+    action: string;
+    top_tayo_transaction_id: string | null;
+    reservation_outcome: string | null;
+    fulfillment_status: string | null;
+    created_at: string;
+  }>;
+  const adminIds = [
+    ...new Set(auditRows.map((row) => row.admin_user_id).filter((id): id is string => Boolean(id))),
+  ];
+  const emails = new Map<string, string>();
+  if (adminIds.length > 0) {
+    const admins = await db.from("admin_users").select("id, email").in("id", adminIds);
+    if (!admins.error) {
+      for (const admin of (admins.data ?? []) as Array<{ id: string; email: string | null }>) {
+        if (admin.email) emails.set(String(admin.id), admin.email);
+      }
+    }
+  }
+
+  return {
+    available: true,
+    entries: auditRows.map((row) => ({
+      id: String(row.id),
+      orderId: String(row.order_id),
+      adminEmail: (row.admin_user_id && emails.get(String(row.admin_user_id))) || "Admin",
+      action: row.action,
+      reservationOutcome: row.reservation_outcome,
+      fulfillmentStatus: row.fulfillment_status,
+      topTayoTransactionId: row.top_tayo_transaction_id,
+      createdAt: row.created_at,
+    })),
+  };
+}
+
+function countActiveAlerts(
+  devices: MerchantGatewayDevice[],
+  alerts: FulfillmentAlertRow[],
+) {
+  const gateway = devices.filter(
+    (device) =>
+      device.status === "OFFLINE" || device.status === "DEGRADED" || device.status === "REVOKED",
+  ).length;
+  const recovered = new Set(
+    alerts
+      .filter((alert) => alert.kind === "fulfillment_recovered" && alert.order_id)
+      .map((alert) => String(alert.order_id)),
+  );
+  const open = new Set(
+    alerts
+      .filter(
+        (alert) =>
+          alert.kind !== "fulfillment_recovered" &&
+          alert.order_id &&
+          !recovered.has(String(alert.order_id)),
+      )
+      .map((alert) => String(alert.order_id)),
+  );
+  return gateway + open.size;
 }
 
 function throwIfError(error: { message: string } | null) {
