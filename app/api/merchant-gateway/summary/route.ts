@@ -7,5 +7,8 @@ export const GET = createAdminGetHandler(
     minimumRole: "admin",
     cacheTtlMs: 0,
   },
-  () => getMerchantGatewaySummary(),
+  (request) =>
+    getMerchantGatewaySummary({
+      forceMoney: request.nextUrl.searchParams.get("freshMoney") === "1",
+    }),
 );

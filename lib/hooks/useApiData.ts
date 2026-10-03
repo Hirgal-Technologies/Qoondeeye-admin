@@ -1,13 +1,30 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  applyBackgroundRefresh,
+  attachLiveRefresh,
+  resolveSharedFetch,
+  withSearch,
+  type LiveRefreshReason,
+} from "@/lib/hooks/live-refresh";
 
 type ApiState<T> =
   | { status: "loading"; data: null; error: null }
   | { status: "error"; data: null; error: string }
   | { status: "success"; data: T; error: null };
 
-type ApiResult<T> = ApiState<T> & { retry: () => void };
+export type ApiRetryOptions = {
+  /** Extra query params for this request only. Polling keeps the original URL. */
+  search?: Record<string, string>;
+};
+
+type ApiResult<T> = ApiState<T> & {
+  retry: (options?: ApiRetryOptions) => void;
+  refreshing: boolean;
+  updatedAt: number | null;
+  liveUnavailable: boolean;
+};
 
 type FetchOutcome = { data: unknown; error: string | null };
 
@@ -57,9 +74,13 @@ function pruneCache() {
 
 function getSharedRequest(url: string, bypassCache: boolean): Promise<FetchOutcome> {
   const existing = cache.get(url);
-  if (!bypassCache && existing && existing.expiresAt > Date.now()) {
-    return existing.promise;
-  }
+  const decision = resolveSharedFetch({
+    bypassCache,
+    inFlight: Boolean(existing && existing.result === null && existing.expiresAt > Date.now()),
+    fresh: Boolean(existing && existing.result && existing.expiresAt > Date.now()),
+  });
+  if (decision === "join" && existing) return existing.promise;
+  if (decision === "reuse" && existing) return existing.promise;
 
   pruneCache();
   const entry: CacheEntry = {
@@ -74,7 +95,7 @@ function getSharedRequest(url: string, bypassCache: boolean): Promise<FetchOutco
       (error: unknown) => {
         cache.delete(url);
         throw error;
-      }
+      },
     ),
   };
   cache.set(url, entry);
@@ -89,53 +110,146 @@ function readFreshCache<T>(url: string): ApiState<T> | null {
   return null;
 }
 
-type HookState<T> = { url: string; attempt: number; state: ApiState<T> };
+type HookState<T> = {
+  url: string;
+  attempt: number;
+  state: ApiState<T>;
+  refreshing: boolean;
+  updatedAt: number | null;
+  consecutiveFailures: number;
+};
 
 function initialState<T>(url: string, attempt: number): HookState<T> {
   return {
     url,
     attempt,
     state: readFreshCache<T>(url) ?? { status: "loading", data: null, error: null },
+    refreshing: false,
+    updatedAt: null,
+    consecutiveFailures: 0,
   };
 }
 
+export type UseApiDataOptions = {
+  /** Background refresh interval. Omitted means load once, same as before. */
+  pollIntervalMs?: number;
+};
+
 /** Fetches a `{ data, error }` endpoint and exposes a retryable, safe UI state. */
-export function useApiData<T>(url: string): ApiResult<T> {
+export function useApiData<T>(url: string, options?: UseApiDataOptions): ApiResult<T> {
+  const pollIntervalMs = options?.pollIntervalMs;
   const [attempt, setAttempt] = useState(0);
   const bypassCacheRef = useRef(false);
+  const extraSearchRef = useRef<Record<string, string> | null>(null);
+  const inFlightRef = useRef(false);
+  const requestGeneration = useRef(0);
   const [current, setCurrent] = useState<HookState<T>>(() => initialState<T>(url, attempt));
 
-  // Render-phase reset: when the URL (or a retry) changes, show the cached
-  // value or the loading state immediately instead of a stale response.
-  if (current.url !== url || current.attempt !== attempt) {
+  if (current.url !== url) {
     setCurrent(initialState<T>(url, attempt));
+  } else if (current.attempt !== attempt) {
+    if (current.state.status === "success") {
+      setCurrent({ ...current, attempt, refreshing: true });
+    } else {
+      setCurrent({
+        ...initialState<T>(url, attempt),
+        updatedAt: current.updatedAt,
+        consecutiveFailures: current.consecutiveFailures,
+      });
+    }
   }
 
-  const retry = useCallback(() => {
+  const retry = useCallback((retryOptions?: ApiRetryOptions) => {
+    extraSearchRef.current = retryOptions?.search ?? null;
     bypassCacheRef.current = true;
     setAttempt((value) => value + 1);
   }, []);
 
+  const retryRef = useRef(retry);
+  retryRef.current = retry;
+
   useEffect(() => {
     const bypassCache = bypassCacheRef.current;
+    const search = extraSearchRef.current;
     bypassCacheRef.current = false;
-    if (!bypassCache && readFreshCache<T>(url)) return;
+    extraSearchRef.current = null;
+    const requestUrl = withSearch(url, search);
+    if (!bypassCache && readFreshCache<T>(requestUrl)) {
+      setCurrent((previous) =>
+        previous.updatedAt == null
+          ? { ...previous, refreshing: false, updatedAt: Date.now() }
+          : { ...previous, refreshing: false },
+      );
+      return;
+    }
 
+    const generation = ++requestGeneration.current;
     let cancelled = false;
-    const settle = (state: ApiState<T>) => {
-      if (!cancelled) setCurrent({ url, attempt, state });
-    };
+    inFlightRef.current = true;
 
-    getSharedRequest(url, bypassCache)
+    getSharedRequest(requestUrl, bypassCache)
       .then((outcome) => {
-        if (outcome.error !== null) {
-          settle({ status: "error", data: null, error: safeErrorMessage(outcome.error) });
-          return;
-        }
-        settle({ status: "success", data: outcome.data as T, error: null });
+        setCurrent((previous) => {
+          const previousData = previous.url === url && previous.state.status === "success" ? previous.state.data : null;
+          const applied = applyBackgroundRefresh({
+            previous: previousData,
+            next: outcome.error === null ? (outcome.data as T) : null,
+            ok: outcome.error === null,
+          });
+          if (cancelled) return previous;
+          if (outcome.error !== null && !applied.preserved) {
+            return {
+              url,
+              attempt,
+              state: { status: "error", data: null, error: safeErrorMessage(outcome.error) },
+              refreshing: false,
+              updatedAt: previous.updatedAt,
+              consecutiveFailures: previous.consecutiveFailures + 1,
+            };
+          }
+          if (applied.preserved && applied.data != null) {
+            return {
+              url,
+              attempt,
+              state: { status: "success", data: applied.data, error: null },
+              refreshing: false,
+              updatedAt: previous.updatedAt,
+              consecutiveFailures: previous.consecutiveFailures + 1,
+            };
+          }
+          return {
+            url,
+            attempt,
+            state: { status: "success", data: applied.data as T, error: null },
+            refreshing: false,
+            updatedAt: Date.now(),
+            consecutiveFailures: 0,
+          };
+        });
       })
       .catch((error: unknown) => {
-        settle({ status: "error", data: null, error: safeErrorMessage(error) });
+        const message = safeErrorMessage(error);
+        setCurrent((previous) => {
+          if (previous.state.status === "success") {
+            return {
+              ...previous,
+              attempt,
+              refreshing: false,
+              consecutiveFailures: previous.consecutiveFailures + 1,
+            };
+          }
+          return {
+            url,
+            attempt,
+            state: { status: "error", data: null, error: message },
+            refreshing: false,
+            updatedAt: previous.updatedAt,
+            consecutiveFailures: previous.consecutiveFailures + 1,
+          };
+        });
+      })
+      .finally(() => {
+        if (requestGeneration.current === generation) inFlightRef.current = false;
       });
 
     return () => {
@@ -143,5 +257,38 @@ export function useApiData<T>(url: string): ApiResult<T> {
     };
   }, [attempt, url]);
 
-  return { ...current.state, retry };
+  useEffect(() => {
+    if (!pollIntervalMs || typeof window === "undefined") return;
+    return attachLiveRefresh(
+      {
+        hidden: () => document.hidden,
+        now: () => Date.now(),
+        setInterval: (fn, ms) => window.setInterval(fn, ms),
+        clearInterval: (id) => window.clearInterval(id as number),
+        addEventListener: (target, type, fn) => {
+          const node = target === "document" ? document : window;
+          node.addEventListener(type, fn);
+        },
+        removeEventListener: (target, type, fn) => {
+          const node = target === "document" ? document : window;
+          node.removeEventListener(type, fn);
+        },
+      },
+      pollIntervalMs,
+      (reason: LiveRefreshReason) => {
+        if (reason === "interval" || reason === "focus" || reason === "visible" || reason === "online") {
+          if (inFlightRef.current) return;
+          retryRef.current();
+        }
+      },
+    );
+  }, [pollIntervalMs]);
+
+  return {
+    ...current.state,
+    retry,
+    refreshing: current.refreshing,
+    updatedAt: current.updatedAt,
+    liveUnavailable: current.consecutiveFailures >= 2 && current.state.status === "success",
+  };
 }

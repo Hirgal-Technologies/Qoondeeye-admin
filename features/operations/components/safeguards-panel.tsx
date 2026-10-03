@@ -3,6 +3,8 @@
 import type { ProductionSafeguardView, ExposedValue } from "@/features/operations/contracts";
 import { formatExposure, formatUsdFromCents } from "@/features/operations/present-status";
 import { formatTimestamp } from "@/features/merchant-gateway/presentation";
+import { formatAgeShort } from "@/lib/hooks/live-refresh";
+import { useTickingNow } from "@/lib/hooks/use-ticking-now";
 
 export function SafeguardsPanel({
   view,
@@ -13,6 +15,7 @@ export function SafeguardsPanel({
   showBalance?: boolean;
   compact?: boolean;
 }) {
+  const now = useTickingNow();
   const rows: Array<{ label: string; value: string; tone: RowTone; detail?: string }> = [];
   rows.push({
     label: "Automated sales",
@@ -63,12 +66,18 @@ export function SafeguardsPanel({
   return (
     <section className={`rounded-lg border bg-card shadow-[var(--shadow-card)] ${compact ? "px-3 py-2.5" : "p-4"}`}>
       <div className="flex items-baseline justify-between gap-3">
-        <h2 className="text-sm font-semibold text-foreground">Production money</h2>
-        {compact ? null : (
-          <p className="text-xs leading-5 text-muted-foreground">
-            Production status from Qoondeeye. An unknown balance stays unavailable.
-          </p>
-        )}
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-foreground">Production money</h2>
+          {compact ? null : (
+            <p className="text-xs leading-5 text-muted-foreground">
+              Production status from Qoondeeye. An unknown balance stays unavailable.
+            </p>
+          )}
+        </div>
+        <p className="shrink-0 text-right text-[11px] text-muted-foreground">
+          Last updated: {formatAgeShort(view.generatedAt, now)}
+          {view.stale ? <span className="mt-0.5 block">Showing previous snapshot</span> : null}
+        </p>
       </div>
       <dl
         className={

@@ -34,7 +34,9 @@ import { loadPaidFulfillmentBoard } from "@/features/merchant-gateway/server/pai
 import { getProductionSafeguardView } from "@/features/operations/server/safeguards";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-export async function getMerchantGatewaySummary(): Promise<MerchantGatewaySummary> {
+export async function getMerchantGatewaySummary(options?: {
+  forceMoney?: boolean;
+}): Promise<MerchantGatewaySummary> {
   const db = createAdminClient();
   const [devicesResult, unmatchedResult, ambiguousResult, paidBoard, safeguards, fulfillmentAlerts, manualHistory] =
     await Promise.all([
@@ -42,7 +44,7 @@ export async function getMerchantGatewaySummary(): Promise<MerchantGatewaySummar
       countMatchStatus("UNMATCHED"),
       countMatchStatus("AMBIGUOUS"),
       loadPaidFulfillmentBoard(),
-      getProductionSafeguardView(),
+      getProductionSafeguardView({ force: options?.forceMoney === true }),
       loadFulfillmentAlerts(),
       loadManualHistory(),
     ]);

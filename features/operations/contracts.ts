@@ -12,6 +12,8 @@ export type ProductionSafeguardView = {
   environment: ExposedValue<string>;
   toptayoBalanceCents: ExposedValue<number>;
   balanceAsOf: string | null;
+  /** True when a later production-status call failed and this snapshot was kept. */
+  stale?: boolean;
   automatedSales: ExposedValue<"enabled" | "disabled">;
   reserveFloorCents: ExposedValue<number>;
   dailyLimitCents: ExposedValue<number>;

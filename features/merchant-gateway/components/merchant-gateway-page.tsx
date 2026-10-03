@@ -13,6 +13,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PageHeading } from "@/components/dashboard/PageHeading";
 import { StatePanel } from "@/components/states/StatePanel";
+import { LiveStatus } from "@/features/merchant-gateway/components/live-status";
 import { PaidOrdersPanel } from "@/features/merchant-gateway/components/paid-orders-panel";
 import type {
   BundleOrderSnapshot,
@@ -60,6 +61,7 @@ import {
 } from "@/features/merchant-gateway/presentation";
 import { SafeguardsPanel } from "@/features/operations/components/safeguards-panel";
 import { formatInteger } from "@/lib/formatters";
+import { MERCHANT_LIVE_INTERVALS } from "@/lib/hooks/live-refresh";
 import { useApiData } from "@/lib/hooks/useApiData";
 
 export function MerchantGatewayPage({ hasAdminRole }: { hasAdminRole: boolean }) {
@@ -88,14 +90,27 @@ function AuthorizedMerchantGateway({ canReconcile }: { canReconcile: boolean }) 
   const router = useRouter();
   const section = parseMerchantSection(searchParams.get("section"));
   const paymentStatus = parsePaymentReviewFilter(searchParams.get("status")) ?? "UNMATCHED";
-  const summary = useApiData<MerchantGatewaySummary>("/api/merchant-gateway/summary");
+  const summary = useApiData<MerchantGatewaySummary>("/api/merchant-gateway/summary", {
+    pollIntervalMs: MERCHANT_LIVE_INTERVALS.ordersMs,
+  });
   const payments = useApiData<MerchantPaymentEvent[]>(
     `/api/merchant-gateway/payments?status=${paymentStatus}`,
+    { pollIntervalMs: MERCHANT_LIVE_INTERVALS.paymentsMs },
   );
-  const history = useApiData<GatewayHistory>("/api/merchant-gateway/alerts");
+  const history = useApiData<GatewayHistory>("/api/merchant-gateway/alerts", {
+    pollIntervalMs: MERCHANT_LIVE_INTERVALS.alertsMs,
+  });
   const reconciliation = useApiData<ReconciliationContext>(
     "/api/merchant-gateway/reconciliation",
+    { pollIntervalMs: MERCHANT_LIVE_INTERVALS.reconciliationMs },
   );
+
+  function refreshOperations() {
+    summary.retry({ search: { freshMoney: "1" } });
+    payments.retry();
+    history.retry();
+    reconciliation.retry();
+  }
 
   function openSection(nextSection: string, status?: PaymentReviewFilter) {
     const params = new URLSearchParams(searchParams.toString());
@@ -119,24 +134,29 @@ function AuthorizedMerchantGateway({ canReconcile }: { canReconcile: boolean }) 
         description="Live gateway health, paid orders waiting for a bundle, and payment reconciliation."
         actions={
           <div className="flex items-center gap-3">
-            {summary.status === "success" ? (
-              <p className="text-[11px] text-muted-foreground">
-                Updated {formatTimestamp(summary.data.generatedAt)}
-              </p>
-            ) : null}
+            <LiveStatus
+              refreshing={
+                summary.refreshing ||
+                payments.refreshing ||
+                history.refreshing ||
+                reconciliation.refreshing
+              }
+              updatedAt={summary.updatedAt}
+              unavailable={
+                summary.liveUnavailable ||
+                payments.liveUnavailable ||
+                history.liveUnavailable ||
+                reconciliation.liveUnavailable
+              }
+            />
             <button
-            type="button"
-            onClick={() => {
-              summary.retry();
-              payments.retry();
-              history.retry();
-              reconciliation.retry();
-            }}
-            className="inline-flex h-9 items-center gap-2 rounded-md border bg-card px-3 text-xs font-medium text-foreground transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-primary"
-          >
-            <RefreshCw aria-hidden="true" className="size-3.5" />
-            Refresh
-          </button>
+              type="button"
+              onClick={refreshOperations}
+              className="inline-flex h-9 items-center gap-2 rounded-md border bg-card px-3 text-xs font-medium text-foreground transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-primary"
+            >
+              <RefreshCw aria-hidden="true" className="size-3.5" />
+              Refresh
+            </button>
           </div>
         }
       />
@@ -256,11 +276,7 @@ function AuthorizedMerchantGateway({ canReconcile }: { canReconcile: boolean }) 
         <GatewaysPanel
           summary={summary}
           onRetry={summary.retry}
-          onRefresh={() => {
-            summary.retry();
-            payments.retry();
-            reconciliation.retry();
-          }}
+          onRefresh={refreshOperations}
           onReconcile={() => openSection("reconciliation")}
         />
       ) : null}
@@ -289,11 +305,7 @@ function AuthorizedMerchantGateway({ canReconcile }: { canReconcile: boolean }) 
           recentCompleted={summary.status === "success" ? summary.data.recentCompleted : null}
           ordersState={summary.status}
           onRetry={reconciliation.retry}
-          onRefresh={() => {
-            summary.retry();
-            payments.retry();
-            reconciliation.retry();
-          }}
+          onRefresh={refreshOperations}
         />
       ) : null}
     </div>
