@@ -17,6 +17,7 @@ export const PAYMENT_REVIEW_FILTERS: PaymentReviewFilter[] = [
   "AMBIGUOUS",
   "MANUAL_REVIEW",
   "MATCHED",
+  "RESOLVED",
 ];
 
 export const MERCHANT_SECTIONS: MerchantGatewaySection[] = [
@@ -205,6 +206,67 @@ export function operationalDevices<T extends { name: string; appVersion: string 
   return devices.filter((device) => !isLabGateway(device));
 }
 
+type RosterDevice = {
+  name: string;
+  appVersion: string | null;
+  id?: string;
+  status: string;
+  revokedAt?: string | null;
+  lastHeartbeatAt?: string | null;
+};
+
+/**
+ * Active gateways are non-lab, non-revoked devices the backend still treats as
+ * operating. When another device is online or degraded, offline rows are stale
+ * history — they stay revocable, and they do not count as the current outage.
+ * If nothing is heartbeating, offline rows stay active so a real outage remains visible.
+ */
+export function partitionOperationalGateways<T extends RosterDevice>(devices: readonly T[]) {
+  const historical: T[] = [];
+  const live: T[] = [];
+  for (const device of devices) {
+    const status = device.status.trim().toUpperCase();
+    if (isLabGateway(device) || status === "REVOKED" || device.revokedAt) {
+      historical.push(device);
+    } else {
+      live.push(device);
+    }
+  }
+  const heartbeating = live.some((device) => {
+    const status = device.status.trim().toUpperCase();
+    return status === "ONLINE" || status === "DEGRADED";
+  });
+  if (!heartbeating) {
+    const latest = live.reduce<T | null>((best, device) => {
+      const time = Date.parse(device.lastHeartbeatAt ?? "");
+      if (!Number.isFinite(time)) return best;
+      if (!best) return device;
+      return time > Date.parse(best.lastHeartbeatAt ?? "") ? device : best;
+    }, null);
+    if (!latest) return { active: live, historical };
+    return {
+      active: [latest],
+      historical: [...historical, ...live.filter((device) => device !== latest)],
+    };
+  }
+  const active: T[] = [];
+  for (const device of live) {
+    const status = device.status.trim().toUpperCase();
+    if (status === "ONLINE" || status === "DEGRADED") active.push(device);
+    else historical.push(device);
+  }
+  return { active, historical };
+}
+
+/** Short network label for the production gateway card. */
+export function formatOperatorNetwork(connected: boolean | null, type: string | null) {
+  if (connected === false) return "Disconnected";
+  const label = formatNetworkType(type);
+  if (label) return label;
+  if (connected === true) return "Connected";
+  return "—";
+}
+
 export function formatRelativeTime(value: string | null | undefined, nowMs = Date.now()) {
   if (!value) return "Never";
   const then = Date.parse(value);
@@ -359,9 +421,36 @@ export function compareEventToOrder(
 }
 
 export function paymentFilterLabel(filter: PaymentReviewFilter) {
-  if (filter === "MANUAL_REVIEW") return "Manual review";
+  if (filter === "MANUAL_REVIEW") return "Needs review";
   if (filter === "MATCHED") return "Recently matched";
+  if (filter === "RESOLVED") return "Resolved";
   return filter.charAt(0) + filter.slice(1).toLowerCase();
+}
+
+/**
+ * Orders that could explain an ambiguous payment. Hard fields only:
+ * amount, currency, method, and merchant receiver. Payer differences stay visible
+ * as separate candidates rather than being dropped.
+ */
+export function paymentCandidateOrders(
+  event: Pick<
+    MerchantPaymentEvent,
+    "amountCents" | "currency" | "paymentMethod" | "provider" | "merchantReceiverMsisdn"
+  >,
+  orders: readonly BundleOrderSnapshot[],
+) {
+  const eventCurrency = (event.currency ?? "").trim().toUpperCase();
+  const eventMethod = paymentMethodKey(event.paymentMethod ?? event.provider);
+  const eventReceiver = phoneDigits(event.merchantReceiverMsisdn);
+  return orders.filter((order) => {
+    if (order.sellingPriceCents !== event.amountCents) return false;
+    if ((order.currency ?? "").trim().toUpperCase() !== eventCurrency) return false;
+    const orderMethod = paymentMethodKey(order.paymentMethod);
+    if (!eventMethod || !orderMethod || eventMethod !== orderMethod) return false;
+    const orderReceiver = phoneDigits(order.merchantReceiverMsisdn);
+    if (!eventReceiver || !orderReceiver || eventReceiver !== orderReceiver) return false;
+    return true;
+  });
 }
 
 export type ReconciliationDecision = {

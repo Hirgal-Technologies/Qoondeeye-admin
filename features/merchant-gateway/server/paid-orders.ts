@@ -1,6 +1,6 @@
 import "server-only";
 import type { PaidFulfillmentOrder } from "@/features/merchant-gateway/contracts";
-import { HOLD_FAILURE_CODES } from "@/features/merchant-gateway/operations";
+import { CLOSED_FULFILLMENT_STATUSES, HOLD_FAILURE_CODES } from "@/features/merchant-gateway/operations";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 const PAID_ORDER_COLUMNS = [
@@ -61,7 +61,7 @@ export async function loadPaidFulfillmentBoard(): Promise<{
       .from("bundle_purchase_orders")
       .select(PAID_ORDER_COLUMNS)
       .eq("payment_status", "PAYMENT_CONFIRMED")
-      .neq("fulfillment_status", "COMPLETED")
+      .not("fulfillment_status", "in", `(${CLOSED_FULFILLMENT_STATUSES.join(",")})`)
       .order("payment_confirmed_at", { ascending: true })
       .limit(50),
     db
@@ -75,18 +75,18 @@ export async function loadPaidFulfillmentBoard(): Promise<{
       .from("bundle_purchase_orders")
       .select("id", { count: "exact", head: true })
       .eq("payment_status", "PAYMENT_CONFIRMED")
-      .neq("fulfillment_status", "COMPLETED"),
+      .not("fulfillment_status", "in", `(${CLOSED_FULFILLMENT_STATUSES.join(",")})`),
     db
       .from("bundle_purchase_orders")
       .select("id", { count: "exact", head: true })
       .eq("payment_status", "PAYMENT_CONFIRMED")
-      .neq("fulfillment_status", "COMPLETED")
+      .not("fulfillment_status", "in", `(${CLOSED_FULFILLMENT_STATUSES.join(",")})`)
       .eq("failure_code", "recharge_uncertain"),
     db
       .from("bundle_purchase_orders")
       .select("id", { count: "exact", head: true })
       .eq("payment_status", "PAYMENT_CONFIRMED")
-      .neq("fulfillment_status", "COMPLETED")
+      .not("fulfillment_status", "in", `(${CLOSED_FULFILLMENT_STATUSES.join(",")})`)
       .in("failure_code", [...HOLD_FAILURE_CODES]),
   ]);
 
