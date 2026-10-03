@@ -30,20 +30,21 @@ export async function writeAuditLog(entry: {
 
 export async function getAuditLogs(limit = 100): Promise<AuditLogRow[]> {
   const db = createAdminClient();
-  const { data } = await db
+  const { data, error } = await db
     .from("audit_log")
     .select(
       "id, actor_email, actor_role, action, target_user_id, metadata, created_at, actor:admin_users!audit_log_actor_id_fkey(email, role)"
     )
     .order("created_at", { ascending: false })
     .limit(limit);
+  if (error) throw error;
 
   return mapAuditRows(data);
 }
 
 export async function getSupportAuditEvents(limit = 15): Promise<AuditLogRow[]> {
   const db = createAdminClient();
-  const { data } = await db
+  const { data, error } = await db
     .from("audit_log")
     .select(
       "id, actor_email, actor_role, action, target_user_id, metadata, created_at, actor:admin_users!audit_log_actor_id_fkey(email, role)"
@@ -51,6 +52,7 @@ export async function getSupportAuditEvents(limit = 15): Promise<AuditLogRow[]> 
     .like("action", "support_%")
     .order("created_at", { ascending: false })
     .limit(limit);
+  if (error) throw error;
 
   return mapAuditRows(data);
 }

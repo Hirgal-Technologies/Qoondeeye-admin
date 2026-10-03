@@ -5,8 +5,8 @@ import type {
   UpdateSupportTicketInput,
 } from "@/features/support-tickets/contracts";
 
-const STATUSES: SupportTicketStatus[] = ["open", "pending", "resolved", "closed"];
-const PRIORITIES: SupportTicketPriority[] = ["low", "normal", "high", "urgent"];
+export const STATUSES: SupportTicketStatus[] = ["open", "pending", "resolved", "closed"];
+export const PRIORITIES: SupportTicketPriority[] = ["low", "normal", "high", "urgent"];
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

@@ -2,6 +2,7 @@ import { getTransaction } from "@/features/reseller/server/reseller-repository";
 import { apiFailure, apiSuccess } from "@/lib/api/responses";
 import { requireAdmin } from "@/lib/auth/require";
 import { ToptayoApiError } from "@/lib/toptayo/client";
+import { isToptayoId } from "@/features/reseller/validation";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -12,7 +13,7 @@ export async function GET(_request: Request, context: RouteContext) {
 
   const { id } = await context.params;
   const transactionId = id.trim();
-  if (!transactionId || transactionId.length > 80) {
+  if (!isToptayoId(transactionId)) {
     return apiFailure("invalid transaction id", 400);
   }
 

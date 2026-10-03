@@ -1,7 +1,7 @@
 import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import type { AdminIdentity, AdminRole } from "@/features/auth/contracts";
-import { apiFailure, apiSuccess } from "@/lib/api/responses";
+import { ApiError, apiFailure, apiSuccess } from "@/lib/api/responses";
 import { readCachedResponse, writeCachedResponse } from "@/lib/api/query-cache";
 import { requireAdmin } from "@/lib/auth/require";
 
@@ -66,6 +66,7 @@ export function createAdminGetHandler<T>(
       }
       return apiSuccess(data);
     } catch (error) {
+      if (error instanceof ApiError) return apiFailure(error.message, error.status);
       console.error(`[api:${options.operation}]`, error);
       return apiFailure("internal server error", 500);
     }

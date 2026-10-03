@@ -65,12 +65,10 @@ export async function POST(request: NextRequest) {
     return jsonError("content must be at most 10 KB", 400);
   }
 
-  // TEMPORARY / SENSITIVE: full SMS body logged only for the Shortcuts PoC.
-  // Remove or redact this log before any long-lived / multi-tenant use.
-  console.log("[api:ios-sms-test] TEMPORARY SENSITIVE LOG — full SMS body", {
-    sender,
+  // SMS bodies carry transaction details and the sender is a phone number or
+  // shortcode, so neither is logged; only the request size is.
+  console.log("[api:ios-sms-test] SMS received", {
     contentLength: content.length,
-    content,
   });
 
   return jsonSuccess({
