@@ -10,7 +10,8 @@ import type {
   ReconciliationAuditEntry,
   ReconciliationRequest,
 } from "@/features/merchant-gateway/contracts";
-import { formatDateTime } from "@/lib/formatters";
+// Relative (not `@/`) so the Node test runner can load this module directly.
+import { formatDateTime } from "../../lib/formatters.ts";
 
 export const PAYMENT_REVIEW_FILTERS: PaymentReviewFilter[] = [
   "UNMATCHED",

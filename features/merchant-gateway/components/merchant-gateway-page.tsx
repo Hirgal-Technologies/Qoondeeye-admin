@@ -88,16 +88,28 @@ export function MerchantGatewayPage({ hasAdminRole }: { hasAdminRole: boolean })
   return <AuthorizedMerchantGateway canReconcile={hasAdminRole} />;
 }
 
+// Gateways heartbeat about once a minute; 30s keeps the board current
+// without multiplying the summary's database reads.
+const LIVE_REFRESH_MS = 30_000;
+
 function AuthorizedMerchantGateway({ canReconcile }: { canReconcile: boolean }) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const section = parseMerchantSection(searchParams.get("section"));
   const paymentStatus = parsePaymentReviewFilter(searchParams.get("status")) ?? "UNMATCHED";
-  const summary = useApiData<MerchantGatewaySummary>("/api/merchant-gateway/summary");
+  // Gateway health and the paid-order queue change without any action on this
+  // page (heartbeats, customer payments), so they refresh in the background.
+  // Worked lists (payments, reconciliation) refresh after actions instead, so
+  // rows don't move while an operator is reviewing them.
+  const summary = useApiData<MerchantGatewaySummary>("/api/merchant-gateway/summary", {
+    refreshIntervalMs: LIVE_REFRESH_MS,
+  });
   const payments = useApiData<MerchantPaymentEvent[]>(
     `/api/merchant-gateway/payments?status=${paymentStatus}`,
   );
-  const history = useApiData<GatewayHistory>("/api/merchant-gateway/alerts");
+  const history = useApiData<GatewayHistory>("/api/merchant-gateway/alerts", {
+    refreshIntervalMs: LIVE_REFRESH_MS,
+  });
   const reconciliation = useApiData<ReconciliationContext>(
     "/api/merchant-gateway/reconciliation",
   );

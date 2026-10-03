@@ -1,44 +1,11 @@
 import "server-only";
-import type { PostgrestError } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchAllPages } from "@/lib/supabase/paginate";
 import type {
   DateRangeParams,
   Granularity,
   TxType,
 } from "@/features/analytics/shared/contracts";
-
-const PAGE_SIZE = 1_000;
-
-type PageResult<T> = {
-  data: T[] | null;
-  error: PostgrestError | null;
-  count: number | null;
-};
-
-async function fetchAllPages<T>(
-  fetchPage: (from: number, to: number) => PromiseLike<PageResult<T>>
-): Promise<T[]> {
-  const rows: T[] = [];
-  let total: number | null = null;
-
-  while (total === null || rows.length < total) {
-    const { data, error, count } = await fetchPage(
-      rows.length,
-      rows.length + PAGE_SIZE - 1
-    );
-    if (error) throw error;
-
-    const page = data ?? [];
-    rows.push(...page);
-    total = count;
-
-    if (page.length === 0 || (total === null && page.length < PAGE_SIZE)) {
-      break;
-    }
-  }
-
-  return rows;
-}
 
 function truncKey(dateStr: string, granularity: Granularity) {
   const d = new Date(dateStr);
@@ -65,7 +32,7 @@ export async function getTransactionVolume(
   }>((from, to) => {
     let query = db
       .from("expenses")
-      .select("id, date, amount, entry_type", { count: "exact" })
+      .select("id, date, amount, entry_type")
       .gte("date", params.from.slice(0, 10))
       .lte("date", params.to.slice(0, 10));
     if (params.type) query = query.ilike("entry_type", params.type);
@@ -97,7 +64,7 @@ export async function getIncomeExpenseTrend(
   }>((from, to) =>
     db
       .from("expenses")
-      .select("id, date, amount, entry_type", { count: "exact" })
+      .select("id, date, amount, entry_type")
       .or("entry_type.ilike.income,entry_type.ilike.expense")
       .gte("date", params.from.slice(0, 10))
       .lte("date", params.to.slice(0, 10))
@@ -133,7 +100,7 @@ export async function getCategoryDistribution(
   }>((from, to) =>
     db
       .from("expenses")
-      .select("id, category, amount", { count: "exact" })
+      .select("id, category, amount")
       .ilike("entry_type", "expense")
       .gte("date", params.from.slice(0, 10))
       .lte("date", params.to.slice(0, 10))
@@ -166,13 +133,19 @@ export async function getBudgetAdherence(
   params: DateRangeParams
 ): Promise<{ pctBudgetsOverLimit: number; pctBudgetsUnderLimit: number; avgUtilization: number }> {
   const db = createAdminClient();
-  const { data } = await db
-    .from("budget_period_history")
-    .select("amount, spent, period_start")
-    .gte("period_start", params.from.slice(0, 10))
-    .lte("period_start", params.to.slice(0, 10));
+  const periods = await fetchAllPages<{
+    amount: number | null;
+    spent: number | null;
+  }>((from, to) =>
+    db
+      .from("budget_period_history")
+      .select("amount, spent")
+      .gte("period_start", params.from.slice(0, 10))
+      .lte("period_start", params.to.slice(0, 10))
+      .order("id")
+      .range(from, to)
+  );
 
-  const periods = data ?? [];
   if (periods.length === 0) {
     return { pctBudgetsOverLimit: 0, pctBudgetsUnderLimit: 0, avgUtilization: 0 };
   }
@@ -197,22 +170,39 @@ export async function getAccountTypeDistribution(): Promise<
   { accountType: string; count: number }[]
 > {
   const db = createAdminClient();
-  const { data } = await db.from("accounts").select("account_type");
+  // Archived accounts are hidden in the app, so they don't count as tracked.
+  const data = await fetchAllPages<{ account_type: string | null }>((from, to) =>
+    db
+      .from("accounts")
+      .select("account_type")
+      .is("archived_at", null)
+      .order("id")
+      .range(from, to)
+  );
 
   const buckets = new Map<string, number>();
-  for (const row of data ?? []) {
+  for (const row of data) {
     const type = row.account_type ?? "unknown";
     buckets.set(type, (buckets.get(type) ?? 0) + 1);
   }
   return [...buckets.entries()].map(([accountType, count]) => ({ accountType, count }));
 }
 
+const MONTHLY_FACTOR: Record<string, number> = {
+  monthly: 1,
+  yearly: 1 / 12,
+  quarterly: 1 / 3,
+  weekly: 52 / 12,
+  daily: 365 / 12,
+};
+
+// A loan stays open until it is settled; `partial` means partly repaid.
+const OPEN_LOAN_STATUSES = ["active", "partial"];
+
 /**
- * No confirmed `subscriptions`/`loans` tables exist in this schema yet
- * (only `app_access_subscriptions`, which is the app's own paywall, not a
- * user-tracked bill/loan feature). Proxying "subscriptions" as recurring
- * expenses (`is_recurring = true`) until/unless a real feature+table exists;
- * loans have no equivalent, so that half returns zero rather than 500ing.
+ * Reads the app's own `subscriptions` and `personal_loans` tables: active
+ * subscriptions normalized to a monthly amount by billing cycle, and open
+ * loans (given or taken) with their outstanding balance.
  */
 export async function getSubscriptionsLoansSummary(): Promise<{
   activeSubscriptions: number;
@@ -221,36 +211,38 @@ export async function getSubscriptionsLoansSummary(): Promise<{
   totalLoanRemaining: number;
 }> {
   const db = createAdminClient();
-  const recurring = await fetchAllPages<{
-    id: string;
-    amount: number | null;
-    recurrence_interval: string | null;
-  }>((from, to) =>
-    db
-      .from("expenses")
-      .select("id, amount, recurrence_interval", { count: "exact" })
-      .eq("is_recurring", true)
-      .ilike("entry_type", "expense")
-      .order("id")
-      .range(from, to)
-  );
+  const [subscriptions, loans] = await Promise.all([
+    fetchAllPages<{ amount: number | string | null; billing_cycle: string | null }>(
+      (from, to) =>
+        db
+          .from("subscriptions")
+          .select("amount, billing_cycle")
+          .eq("is_active", true)
+          .order("id")
+          .range(from, to)
+    ),
+    fetchAllPages<{ remaining_amount: number | string | null }>((from, to) =>
+      db
+        .from("personal_loans")
+        .select("remaining_amount")
+        .in("status", OPEN_LOAN_STATUSES)
+        .order("id")
+        .range(from, to)
+    ),
+  ]);
 
-  const monthlyMultiplier: Record<string, number> = {
-    monthly: 1,
-    yearly: 1 / 12,
-    weekly: 4.345,
-    daily: 30.44,
-  };
-
-  const totalSubscriptionValueMonthly = recurring.reduce((sum, r) => {
-    const factor = monthlyMultiplier[r.recurrence_interval ?? ""] ?? 1;
-    return sum + Number(r.amount ?? 0) * factor;
+  const totalSubscriptionValueMonthly = subscriptions.reduce((sum, row) => {
+    const factor = MONTHLY_FACTOR[row.billing_cycle?.toLowerCase() ?? ""] ?? 1;
+    return sum + Number(row.amount ?? 0) * factor;
   }, 0);
 
   return {
-    activeSubscriptions: recurring.length,
+    activeSubscriptions: subscriptions.length,
     totalSubscriptionValueMonthly,
-    activeLoans: 0,
-    totalLoanRemaining: 0,
+    activeLoans: loans.length,
+    totalLoanRemaining: loans.reduce(
+      (sum, row) => sum + Number(row.remaining_amount ?? 0),
+      0
+    ),
   };
 }

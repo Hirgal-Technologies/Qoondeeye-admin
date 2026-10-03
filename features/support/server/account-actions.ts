@@ -24,7 +24,8 @@ export async function runSupportAccountAction(
   const { data: existing, error: findError } = await db.auth.admin.getUserById(
     input.userId
   );
-  if (findError || !existing.user) return { ok: false, reason: "not_found" };
+  if (findError && findError.status !== 404) throw findError;
+  if (!existing.user) return { ok: false, reason: "not_found" };
 
   if (input.action === "reset_password") {
     if (!existing.user.email) return { ok: false, reason: "invalid_request" };

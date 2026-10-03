@@ -7,7 +7,13 @@ type CacheEntry = {
 
 const MAX_ENTRIES = 256;
 
-const store = new Map<string, CacheEntry>();
+// Route handlers can be bundled separately, each with its own copy of this
+// module. Keeping the store on globalThis makes it one per process, so a
+// mutation in one route can invalidate entries another route cached.
+const globalForCache = globalThis as typeof globalThis & {
+  __adminQueryCache?: Map<string, CacheEntry>;
+};
+const store = (globalForCache.__adminQueryCache ??= new Map<string, CacheEntry>());
 
 /**
  * Small in-process TTL cache for serialized read-only API responses.
@@ -27,6 +33,17 @@ export function readCachedResponse(key: string): string | null {
     return null;
   }
   return entry.body;
+}
+
+/**
+ * Drops every cached response for an operation (all query-string variants).
+ * Mutations call this so the next read reflects the write instead of waiting
+ * out the TTL.
+ */
+export function invalidateCachedResponses(operation: string) {
+  for (const key of store.keys()) {
+    if (key === operation || key.startsWith(`${operation}?`)) store.delete(key);
+  }
 }
 
 export function writeCachedResponse(key: string, body: string, ttlMs: number) {

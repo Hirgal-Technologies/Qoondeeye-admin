@@ -192,10 +192,9 @@ export function FinancePage() {
                 : undefined
             }
             sublabel={
-              subscriptionsLoans.status === "success" &&
-              subscriptionsLoans.data.activeLoans === 0
-                ? "Loan telemetry not connected"
-                : "Tracked loan products"
+              subscriptionsLoans.status === "success"
+                ? `${formatCurrency.format(subscriptionsLoans.data.totalLoanRemaining)} outstanding`
+                : undefined
             }
             isLoading={subscriptionsLoans.status === "loading"}
             error={

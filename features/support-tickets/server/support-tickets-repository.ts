@@ -153,13 +153,16 @@ export async function updateSupportTicket(
     if (!assignee) throw new SupportTicketError("invalid_assignee");
   }
 
-  const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
-  if (input.status !== undefined) {
+  const now = new Date().toISOString();
+  const patch: Record<string, unknown> = { updated_at: now };
+  if (input.status !== undefined && input.status !== current.status) {
+    // resolved_at records when the ticket first left the active queue; moving
+    // between resolved and closed keeps it, reopening clears it.
+    const isDone = (status: string) => status === "resolved" || status === "closed";
     patch.status = input.status;
-    patch.resolved_at =
-      input.status === "resolved" || input.status === "closed"
-        ? new Date().toISOString()
-        : null;
+    if (isDone(input.status) !== isDone(current.status)) {
+      patch.resolved_at = isDone(input.status) ? now : null;
+    }
   }
   if (input.priority !== undefined) patch.priority = input.priority;
   if (input.assigneeId !== undefined) patch.assignee_id = input.assigneeId;

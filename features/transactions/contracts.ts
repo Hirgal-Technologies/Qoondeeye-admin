@@ -49,7 +49,8 @@ export type TransactionUserProfile = {
   language: string | null;
   darkMode: boolean;
   imageUrl: string | null;
-  createdAt: string;
+  /** Null when neither the profile nor the Auth account records it. */
+  createdAt: string | null;
 };
 
 export type TransactionUserAuth = {

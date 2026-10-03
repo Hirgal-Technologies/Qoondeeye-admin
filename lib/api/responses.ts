@@ -17,9 +17,24 @@ export function apiSuccess<T>(data: T, init?: ResponseInit) {
   return NextResponse.json<ApiSuccess<T>>({ data, error: null }, init);
 }
 
-export function apiFailure(error: string, status: number) {
+export function apiFailure(error: string, status: number, init?: ResponseInit) {
   return NextResponse.json<ApiFailure>(
     { data: null, error },
-    { status }
+    { ...init, status }
   );
+}
+
+/**
+ * A client-facing failure raised from inside a query or parser (bad params,
+ * missing resource). Route handlers turn it into `apiFailure(message, status)`;
+ * anything else that is thrown stays an opaque 500.
+ */
+export class ApiError extends Error {
+  constructor(
+    public readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
 }

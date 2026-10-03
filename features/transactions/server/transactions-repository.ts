@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchAllPages } from "@/lib/supabase/paginate";
 import type {
   TransactionListParams,
   TransactionRow,
@@ -54,6 +55,14 @@ type AccountRecord = {
   updated_at: string;
 };
 
+// Values of `transactions.type` written by the app (filter options).
+const TRANSACTION_TYPES = [
+  "expense",
+  "income",
+  "balance_adjustment",
+  "opening_balance",
+];
+
 const TRANSACTION_COLUMNS =
   "id, user_id, account_id, amount, description, date, category, is_recurring, recurrence_interval, type, created_at, evc_kind";
 
@@ -92,20 +101,23 @@ export async function getTransactions(
   params: TransactionListParams,
 ): Promise<TransactionsResult> {
   const db = createAdminClient();
-  const { data: profileData, error: profileError } = await db
-    .from("profiles")
-    .select("id, full_name, email")
-    .order("full_name", { ascending: true, nullsFirst: false })
-    .order("email", { ascending: true });
+  const profileData = await fetchAllPages<ProfileRecord>((from, to) =>
+    db
+      .from("profiles")
+      .select("id, full_name, email")
+      .order("full_name", { ascending: true, nullsFirst: false })
+      .order("email", { ascending: true })
+      .order("id", { ascending: true })
+      .range(from, to),
+  );
 
-  if (profileError) throw profileError;
-
-  const users = ((profileData ?? []) as ProfileRecord[]).map(toUserOption);
+  const users = profileData.map(toUserOption);
   const userById = new Map(users.map((user) => [user.id, user]));
 
   let query = db
     .from("transactions")
     .select(TRANSACTION_COLUMNS, { count: "exact" })
+    .is("deleted_at", null)
     .gte("date", params.from.slice(0, 10))
     .lte("date", params.to.slice(0, 10));
 
@@ -159,7 +171,7 @@ export async function getTransactions(
     pageSize: params.pageSize,
     totalPages: Math.max(Math.ceil(total / params.pageSize), 1),
     users,
-    types: ["expense", "income", "balance_adjustment"],
+    types: TRANSACTION_TYPES,
   };
 }
 
@@ -183,6 +195,8 @@ export async function getTransactionUserDetails(
   ]);
 
   if (profileResult.error) throw profileResult.error;
+  // A user with no Auth account is a valid state; an Auth outage is not.
+  if (authResult.error && authResult.error.status !== 404) throw authResult.error;
 
   const profile = profileResult.data as UserProfileRecord | null;
   const authUser = authResult.data.user;
@@ -217,6 +231,7 @@ export async function getTransactionUserDetails(
         .from("transactions")
         .select(TRANSACTION_COLUMNS)
         .eq("user_id", userId)
+        .is("deleted_at", null)
         .order("date", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(DETAIL_TRANSACTION_LIMIT),
@@ -286,7 +301,7 @@ export async function getTransactionUserDetails(
       createdAt:
         (profile?.created_at ? String(profile.created_at) : null) ??
         authUser?.created_at ??
-        new Date(0).toISOString(),
+        null,
     },
     auth: authUser
       ? {
@@ -335,6 +350,7 @@ async function readUserLedger(userId: string) {
       .from("transactions")
       .select("id, amount, date, type")
       .eq("user_id", userId)
+      .is("deleted_at", null)
       .order("id")
       .range(from, from + SUMMARY_PAGE_SIZE - 1);
     if (error) throw error;

@@ -99,8 +99,19 @@ function initialState<T>(url: string, attempt: number): HookState<T> {
   };
 }
 
+type ApiDataOptions = {
+  /**
+   * Re-fetches in the background on this interval while the tab is visible
+   * (and once when it becomes visible again). The last good data stays on
+   * screen while refreshing; a failed background refresh keeps it rather than
+   * replacing it with an error. Omit for data that only changes on user action.
+   */
+  refreshIntervalMs?: number;
+};
+
 /** Fetches a `{ data, error }` endpoint and exposes a retryable, safe UI state. */
-export function useApiData<T>(url: string): ApiResult<T> {
+export function useApiData<T>(url: string, options: ApiDataOptions = {}): ApiResult<T> {
+  const refreshIntervalMs = options.refreshIntervalMs ?? 0;
   const [attempt, setAttempt] = useState(0);
   const bypassCacheRef = useRef(false);
   const [current, setCurrent] = useState<HookState<T>>(() => initialState<T>(url, attempt));
@@ -142,6 +153,41 @@ export function useApiData<T>(url: string): ApiResult<T> {
       cancelled = true;
     };
   }, [attempt, url]);
+
+  useEffect(() => {
+    if (refreshIntervalMs <= 0) return;
+
+    let cancelled = false;
+    let inFlight = false;
+    const refresh = () => {
+      if (inFlight || document.visibilityState !== "visible") return;
+      inFlight = true;
+      getSharedRequest(url, true)
+        .then((outcome) => {
+          if (cancelled || outcome.error !== null) return;
+          setCurrent((previous) =>
+            previous.url === url
+              ? { ...previous, state: { status: "success", data: outcome.data as T, error: null } }
+              : previous
+          );
+        })
+        .catch(() => undefined)
+        .finally(() => {
+          inFlight = false;
+        });
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+
+    const timer = window.setInterval(refresh, refreshIntervalMs);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [refreshIntervalMs, url]);
 
   return { ...current.state, retry };
 }

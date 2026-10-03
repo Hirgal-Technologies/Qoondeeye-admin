@@ -3,20 +3,23 @@ import {
   createSupportTicket,
   getSupportTickets,
 } from "@/features/support-tickets/server/support-tickets-repository";
-import { parseCreateSupportTicketInput } from "@/features/support-tickets/validation";
+import {
+  PRIORITIES,
+  STATUSES,
+  parseCreateSupportTicketInput,
+} from "@/features/support-tickets/validation";
 import { createAdminGetHandler } from "@/lib/api/admin-route";
+import { parseOptionalEnum } from "@/lib/api/params";
 import { apiFailure, apiSuccess } from "@/lib/api/responses";
 import { requireAdmin } from "@/lib/auth/require";
 
 export const GET = createAdminGetHandler(
   { operation: "support.tickets.list", minimumRole: "support", cacheTtlMs: 0 },
-  (request) => {
-    const url = new URL(request.url);
-    return getSupportTickets({
-      status: url.searchParams.get("status") ?? undefined,
-      priority: url.searchParams.get("priority") ?? undefined,
-    });
-  }
+  (request) =>
+    getSupportTickets({
+      status: parseOptionalEnum(request, "status", STATUSES),
+      priority: parseOptionalEnum(request, "priority", PRIORITIES),
+    })
 );
 
 export async function POST(request: NextRequest) {

@@ -8,13 +8,17 @@ export async function POST(request: NextRequest) {
   if (response) return response;
 
   const body = await request.json().catch(() => null);
-  const result = await lookupSupportUser(identity, body);
 
-  if (!result.ok) {
-    return result.reason === "not_found"
-      ? apiFailure("user not found", 404)
-      : apiFailure("invalid support access request", 400);
+  try {
+    const result = await lookupSupportUser(identity, body);
+    if (!result.ok) {
+      return result.reason === "not_found"
+        ? apiFailure("user not found", 404)
+        : apiFailure("invalid support access request", 400);
+    }
+    return apiSuccess(result.user);
+  } catch (error) {
+    console.error("[api:support.lookup]", error);
+    return apiFailure("The user lookup could not be completed.", 500);
   }
-
-  return apiSuccess(result.user);
 }

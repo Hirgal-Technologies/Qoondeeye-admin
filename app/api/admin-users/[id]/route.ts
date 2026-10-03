@@ -8,8 +8,12 @@ import {
   isAdminUserId,
   parseUpdateAdminUserInput,
 } from "@/features/admin-users/validation";
+import { invalidateCachedResponses } from "@/lib/api/query-cache";
 import { apiFailure, apiSuccess } from "@/lib/api/responses";
 import { requireAdmin } from "@/lib/auth/require";
+
+// Ticket assignees are derived from the admin roster and cached for 30s.
+const ASSIGNEES_OPERATION = "support.tickets.assignees";
 
 type AdminUserRouteContext = {
   params: Promise<{ id: string }>;
@@ -31,6 +35,7 @@ export async function PATCH(
 
   try {
     await updateAdminUser(identity, id, input);
+    invalidateCachedResponses(ASSIGNEES_OPERATION);
     return apiSuccess({ id });
   } catch (error) {
     return handleAdminUserError(error, "update");
@@ -49,6 +54,7 @@ export async function DELETE(
 
   try {
     await deleteAdminUser(identity, id);
+    invalidateCachedResponses(ASSIGNEES_OPERATION);
     return apiSuccess({ id });
   } catch (error) {
     return handleAdminUserError(error, "delete");
