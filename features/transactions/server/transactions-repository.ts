@@ -101,7 +101,9 @@ export async function getTransactions(
   params: TransactionListParams,
 ): Promise<TransactionsResult> {
   const db = createAdminClient();
-  const profileData = await fetchAllPages<ProfileRecord>((from, to) =>
+  // The user list is needed before the transaction query only when a search
+  // term must be matched against names; otherwise both reads run together.
+  const usersPromise = fetchAllPages<ProfileRecord>((from, to) =>
     db
       .from("profiles")
       .select("id, full_name, email")
@@ -109,10 +111,7 @@ export async function getTransactions(
       .order("email", { ascending: true })
       .order("id", { ascending: true })
       .range(from, to),
-  );
-
-  const users = profileData.map(toUserOption);
-  const userById = new Map(users.map((user) => [user.id, user]));
+  ).then((profiles) => profiles.map(toUserOption));
 
   let query = db
     .from("transactions")
@@ -127,7 +126,7 @@ export async function getTransactions(
   const search = sanitizeTransactionSearch(params.search ?? "");
   if (search) {
     const normalized = search.toLocaleLowerCase();
-    const matchingUserIds = users
+    const matchingUserIds = (await usersPromise)
       .filter((user) =>
         [user.fullName, user.email, user.id]
           .filter(Boolean)
@@ -152,12 +151,16 @@ export async function getTransactions(
   }
 
   const fromIndex = (params.page - 1) * params.pageSize;
-  const { data, count, error } = await query
-    .order("date", { ascending: false })
-    .order("created_at", { ascending: false })
-    .range(fromIndex, fromIndex + params.pageSize - 1);
+  const [users, { data, count, error }] = await Promise.all([
+    usersPromise,
+    query
+      .order("date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .range(fromIndex, fromIndex + params.pageSize - 1),
+  ]);
 
   if (error) throw error;
+  const userById = new Map(users.map((user) => [user.id, user]));
 
   const rows = ((data ?? []) as TransactionRecord[]).map((row) =>
     toTransactionRow(row, userById.get(String(row.user_id)) ?? null),
@@ -176,14 +179,16 @@ export async function getTransactions(
 }
 
 const DETAIL_TRANSACTION_LIMIT = 50;
-const SUMMARY_PAGE_SIZE = 1_000;
 
 export async function getTransactionUserDetails(
   userId: string,
   options: { includeFinancialDetails?: boolean } = {},
 ): Promise<TransactionUserDetails | null> {
   const db = createAdminClient();
-  const [profileResult, authResult] = await Promise.all([
+  // Financial reads only depend on the user id, so they start alongside the
+  // profile/Auth lookups instead of waiting for them (one round trip, not two).
+  const includeFinancialDetails = options.includeFinancialDetails !== false;
+  const [profileResult, authResult, financial] = await Promise.all([
     db
       .from("profiles")
       .select(
@@ -192,6 +197,7 @@ export async function getTransactionUserDetails(
       .eq("id", userId)
       .maybeSingle(),
     db.auth.admin.getUserById(userId),
+    includeFinancialDetails ? readFinancialDetails(userId) : null,
   ]);
 
   if (profileResult.error) throw profileResult.error;
@@ -217,27 +223,8 @@ export async function getTransactionUserDetails(
     "id" | "amount" | "date" | "type"
   >[] = [];
 
-  if (options.includeFinancialDetails !== false) {
-    const [accountsResult, recentResult, ledgerResult] = await Promise.all([
-      db
-        .from("accounts")
-        .select(
-          "id, name, account_type, amount, currency, description, is_default, balance_initialized_from_sms, balance_manually_edited, created_at, updated_at",
-        )
-        .eq("user_id", userId)
-        .order("is_default", { ascending: false })
-        .order("created_at", { ascending: true }),
-      db
-        .from("transactions")
-        .select(TRANSACTION_COLUMNS)
-        .eq("user_id", userId)
-        .is("deleted_at", null)
-        .order("date", { ascending: false })
-        .order("created_at", { ascending: false })
-        .limit(DETAIL_TRANSACTION_LIMIT),
-      readUserLedger(userId),
-    ]);
-
+  if (financial) {
+    const { accountsResult, recentResult, ledgerResult } = financial;
     if (accountsResult.error) throw accountsResult.error;
     if (recentResult.error) throw recentResult.error;
 
@@ -333,32 +320,44 @@ export async function getTransactionUserDetails(
   };
 }
 
+async function readFinancialDetails(userId: string) {
+  const db = createAdminClient();
+  const [accountsResult, recentResult, ledgerResult] = await Promise.all([
+    db
+      .from("accounts")
+      .select(
+        "id, name, account_type, amount, currency, description, is_default, balance_initialized_from_sms, balance_manually_edited, created_at, updated_at",
+      )
+      .eq("user_id", userId)
+      .order("is_default", { ascending: false })
+      .order("created_at", { ascending: true }),
+    db
+      .from("transactions")
+      .select(TRANSACTION_COLUMNS)
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .order("date", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(DETAIL_TRANSACTION_LIMIT),
+    readUserLedger(userId),
+  ]);
+  return { accountsResult, recentResult, ledgerResult };
+}
+
 function stringValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
-async function readUserLedger(userId: string) {
+function readUserLedger(userId: string) {
   const db = createAdminClient();
-  const rows: Pick<
-    TransactionRecord,
-    "id" | "amount" | "date" | "type"
-  >[] = [];
-
-  for (let page = 0; ; page += 1) {
-    const from = page * SUMMARY_PAGE_SIZE;
-    const { data, error } = await db
-      .from("transactions")
-      .select("id, amount, date, type")
-      .eq("user_id", userId)
-      .is("deleted_at", null)
-      .order("id")
-      .range(from, from + SUMMARY_PAGE_SIZE - 1);
-    if (error) throw error;
-
-    const batch = (data ?? []) as typeof rows;
-    rows.push(...batch);
-    if (batch.length < SUMMARY_PAGE_SIZE) break;
-  }
-
-  return rows;
+  return fetchAllPages<Pick<TransactionRecord, "id" | "amount" | "date" | "type">>(
+    (from, to) =>
+      db
+        .from("transactions")
+        .select("id, amount, date, type")
+        .eq("user_id", userId)
+        .is("deleted_at", null)
+        .order("id")
+        .range(from, to),
+  );
 }

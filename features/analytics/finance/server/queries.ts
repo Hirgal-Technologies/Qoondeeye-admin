@@ -20,31 +20,45 @@ function truncKey(dateStr: string, granularity: Granularity) {
 // `entry_type` distinguishes expense/income/transfer; `date` is the
 // user-facing transaction date (not `created_at`, which is row-insert time).
 
+// Daily (date, entry_type) totals from the `mv_daily_transaction_rollup` view
+// (0002_analytics_views.sql). It is a plain view, aggregated by Postgres over
+// live `expenses` on every read — as fresh as the table, but one small
+// response instead of every ledger row in the range.
+type DailyTypeTotal = {
+  date: string;
+  type: string | null;
+  volume: number | string | null;
+  count: number | string | null;
+};
+
+/** `types` are matched case-insensitively (the ledger stores "Expense"). */
+function readDailyTypeTotals(params: DateRangeParams, types?: string[]) {
+  const db = createAdminClient();
+  return fetchAllPages<DailyTypeTotal>((from, to) => {
+    let query = db
+      .from("mv_daily_transaction_rollup")
+      .select("date, type, volume, count")
+      .gte("date", params.from.slice(0, 10))
+      .lte("date", params.to.slice(0, 10));
+    if (types) query = query.or(types.map((type) => `type.ilike.${type}`).join(","));
+    return query.order("date").order("type").range(from, to);
+  });
+}
+
 export async function getTransactionVolume(
   params: DateRangeParams & { granularity: Granularity; type?: TxType }
 ): Promise<{ date: string; volume: number; count: number }[]> {
-  const db = createAdminClient();
-  const data = await fetchAllPages<{
-    id: string;
-    date: string;
-    amount: number | null;
-    entry_type: string | null;
-  }>((from, to) => {
-    let query = db
-      .from("expenses")
-      .select("id, date, amount, entry_type")
-      .gte("date", params.from.slice(0, 10))
-      .lte("date", params.to.slice(0, 10));
-    if (params.type) query = query.ilike("entry_type", params.type);
-    return query.order("date").order("id").range(from, to);
-  });
+  const data = await readDailyTypeTotals(
+    params,
+    params.type ? [params.type] : undefined
+  );
 
   const buckets = new Map<string, { volume: number; count: number }>();
   for (const row of data) {
     const key = truncKey(row.date, params.granularity);
     const bucket = buckets.get(key) ?? { volume: 0, count: 0 };
-    bucket.volume += Number(row.amount ?? 0);
-    bucket.count += 1;
+    bucket.volume += Number(row.volume ?? 0);
+    bucket.count += Number(row.count ?? 0);
     buckets.set(key, bucket);
   }
   return [...buckets.entries()]
@@ -55,30 +69,14 @@ export async function getTransactionVolume(
 export async function getIncomeExpenseTrend(
   params: DateRangeParams & { granularity: Granularity }
 ): Promise<{ date: string; income: number; expenses: number }[]> {
-  const db = createAdminClient();
-  const data = await fetchAllPages<{
-    id: string;
-    date: string;
-    amount: number | null;
-    entry_type: string | null;
-  }>((from, to) =>
-    db
-      .from("expenses")
-      .select("id, date, amount, entry_type")
-      .or("entry_type.ilike.income,entry_type.ilike.expense")
-      .gte("date", params.from.slice(0, 10))
-      .lte("date", params.to.slice(0, 10))
-      .order("date")
-      .order("id")
-      .range(from, to)
-  );
+  const data = await readDailyTypeTotals(params, ["income", "expense"]);
 
   const buckets = new Map<string, { income: number; expenses: number }>();
   for (const row of data) {
     const key = truncKey(row.date, params.granularity);
     const bucket = buckets.get(key) ?? { income: 0, expenses: 0 };
-    const amount = Number(row.amount ?? 0);
-    const entryType = row.entry_type?.toLowerCase();
+    const amount = Number(row.volume ?? 0);
+    const entryType = row.type?.toLowerCase();
     if (entryType === "income") bucket.income += amount;
     if (entryType === "expense") bucket.expenses += amount;
     buckets.set(key, bucket);

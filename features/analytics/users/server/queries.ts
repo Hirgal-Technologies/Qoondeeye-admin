@@ -88,31 +88,32 @@ export async function getAuthMethodBreakdown(): Promise<
  */
 export async function getCohortRetention(params: DateRangeParams): Promise<CohortRetentionRow[]> {
   const db = createAdminClient();
-  const users = await fetchAllPages<{ id: string; created_at: string }>((from, to) =>
-    db
-      .from("profiles")
-      .select("id, created_at")
-      .gte("created_at", params.from)
-      .lte("created_at", params.to)
-      .order("created_at")
-      .order("id")
-      .range(from, to)
-  );
-
-  if (users.length === 0) return [];
-
   // Only activity on/after the earliest cohort week can count toward
-  // retention, so read that ledger window rather than a huge `in` list.
-  const cohortUserIds = new Set(users.map((u) => String(u.id)));
-  const activity = await fetchAllPages<{ id: string; user_id: string; date: string }>(
-    (from, to) =>
+  // retention, so read that ledger window (in parallel with the cohort
+  // itself) rather than a huge `in` list.
+  const [users, activity] = await Promise.all([
+    fetchAllPages<{ id: string; created_at: string }>((from, to) =>
+      db
+        .from("profiles")
+        .select("id, created_at")
+        .gte("created_at", params.from)
+        .lte("created_at", params.to)
+        .order("created_at")
+        .order("id")
+        .range(from, to)
+    ),
+    fetchAllPages<{ id: string; user_id: string; date: string }>((from, to) =>
       db
         .from("expenses")
         .select("id, user_id, date")
         .gte("date", truncKey(params.from, "week"))
         .order("id")
         .range(from, to)
-  );
+    ),
+  ]);
+
+  if (users.length === 0) return [];
+  const cohortUserIds = new Set(users.map((u) => String(u.id)));
 
   const activityByUser = new Map<string, string[]>();
   for (const row of activity) {
@@ -188,37 +189,20 @@ export async function getNewUsers(
   return { total: count ?? users.length, users };
 }
 
-/**
- * PostgREST caps a single `select` at ~1000 rows, so a range scan of the
- * ledger has to be paged explicitly or the roster silently truncates.
- * MAX_PAGES bounds the work for very large windows.
- */
-const LEDGER_PAGE_SIZE = 1000;
-const LEDGER_MAX_PAGES = 50;
-
 type LedgerRow = { user_id: string; date: string; amount: number | string | null };
 
-async function readLedgerRange(from: string, to: string): Promise<LedgerRow[]> {
+function readLedgerRange(from: string, to: string): Promise<LedgerRow[]> {
   const db = createAdminClient();
-  const rows: LedgerRow[] = [];
-
-  for (let page = 0; page < LEDGER_MAX_PAGES; page++) {
-    const start = page * LEDGER_PAGE_SIZE;
-    const { data, error } = await db
+  return fetchAllPages<LedgerRow>((start, end) =>
+    db
       .from("expenses")
       .select("user_id, date, amount")
       .gte("date", from)
       .lte("date", to)
       .order("date", { ascending: true })
-      .range(start, start + LEDGER_PAGE_SIZE - 1);
-
-    if (error) throw error;
-    const batch = (data ?? []) as LedgerRow[];
-    rows.push(...batch);
-    if (batch.length < LEDGER_PAGE_SIZE) break;
-  }
-
-  return rows;
+      .order("id", { ascending: true })
+      .range(start, end)
+  );
 }
 
 /**
@@ -250,9 +234,13 @@ export async function getActiveUsers(
   }
 
   const ranked = [...byUser.entries()]
+    // The id tie-break keeps the order (and which users make the `limit`
+    // cut) independent of the order ledger rows arrive in.
     .sort(
-      ([, a], [, b]) =>
-        b.lastActiveAt.localeCompare(a.lastActiveAt) || b.entries - a.entries
+      ([aId, a], [bId, b]) =>
+        b.lastActiveAt.localeCompare(a.lastActiveAt) ||
+        b.entries - a.entries ||
+        aId.localeCompare(bId)
     )
     .slice(0, params.limit);
 

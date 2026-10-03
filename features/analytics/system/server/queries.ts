@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchAllPages, type PageQuery } from "@/lib/supabase/paginate";
 import type { DateRangeParams } from "@/features/analytics/shared/contracts";
 
 // System-health signals derived from the confirmed production schema (the
@@ -13,31 +14,26 @@ import type { DateRangeParams } from "@/features/analytics/shared/contracts";
 // date (created_at vs date). "OCR" health = share of entries carrying a
 // receipt. The incident feed groups app notifications and admin audit events.
 
-const PAGE_SIZE = 1000;
-
 type Row = Record<string, unknown>;
 
-async function fetchAllRows(
+function fetchAllRows(
   table: string,
   columns: string,
   timestampColumn: string,
   params: DateRangeParams
 ): Promise<Row[]> {
   const db = createAdminClient();
-  const rows: Row[] = [];
-  for (let offset = 0; ; offset += PAGE_SIZE) {
-    const { data, error } = await db
+  return fetchAllPages<Row>((from, to) =>
+    db
       .from(table)
       .select(columns)
       .gte(timestampColumn, params.from)
       .lte(timestampColumn, params.to)
       .order(timestampColumn, { ascending: true })
-      .range(offset, offset + PAGE_SIZE - 1);
-    if (error) throw error;
-    const page = (data ?? []) as unknown as Row[];
-    rows.push(...page);
-    if (page.length < PAGE_SIZE) return rows;
-  }
+      .order("id", { ascending: true })
+      // `columns` is dynamic, so the row type can't be inferred from it.
+      .range(from, to) as unknown as PageQuery<Row>
+  );
 }
 
 function dayKey(iso: string) {
