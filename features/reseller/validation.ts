@@ -14,11 +14,19 @@ export function parseRechargeInput(body: unknown): RechargeInput | null {
   const bundleId =
     typeof candidate?.bundleId === "string" ? candidate.bundleId.trim() : "";
 
-  if (sender === null || receiver === null || !bundleId) {
+  if (sender === null || receiver === null || !isToptayoId(bundleId)) {
     return null;
   }
 
   return { sender, receiver, bundleId };
+}
+
+/**
+ * TopTayo ids are URL-safe nanoids. They are interpolated into upstream URL
+ * paths, so anything else (e.g. `..`) must be rejected before the request.
+ */
+export function isToptayoId(value: string) {
+  return /^[A-Za-z0-9_-]{1,64}$/.test(value);
 }
 
 function toPhoneNumber(value: unknown): number | null {

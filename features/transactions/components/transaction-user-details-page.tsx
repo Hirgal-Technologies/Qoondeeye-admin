@@ -119,7 +119,11 @@ export function TransactionUserDetailsPage({
             />
             <DetailField
               label="Joined"
-              value={formatDateTime(profile.createdAt)}
+              value={
+                profile.createdAt
+                  ? formatDateTime(profile.createdAt)
+                  : "Unavailable"
+              }
             />
             <DetailField label="User ID" value={profile.id} mono />
           </DetailGrid>

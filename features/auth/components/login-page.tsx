@@ -32,7 +32,11 @@ export function LoginPage() {
       setError(
         body.error === "forbidden"
           ? "This account does not have dashboard access."
-          : "The email or password is incorrect."
+          : response.status === 429
+            ? "Too many sign-in attempts. Wait a few minutes and try again."
+            : response.status === 401
+              ? "The email or password is incorrect."
+              : "Sign-in is unavailable right now. Try again."
       );
       return;
     }

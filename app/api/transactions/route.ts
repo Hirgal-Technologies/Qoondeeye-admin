@@ -1,6 +1,10 @@
 import { getTransactions } from "@/features/transactions/server/transactions-repository";
 import { createAdminGetHandler } from "@/lib/api/admin-route";
-import { parseBoundedInteger, parseDateRange } from "@/lib/api/params";
+import {
+  parseBoundedInteger,
+  parseDateRange,
+  parseOptionalUuid,
+} from "@/lib/api/params";
 
 export const GET = createAdminGetHandler(
   {
@@ -18,7 +22,7 @@ export const GET = createAdminGetHandler(
         max: 100,
       }),
       search: searchParams.get("search")?.trim() || undefined,
-      userId: searchParams.get("userId")?.trim() || undefined,
+      userId: parseOptionalUuid(request, "userId"),
       type: searchParams.get("type")?.trim() || undefined,
     });
   },

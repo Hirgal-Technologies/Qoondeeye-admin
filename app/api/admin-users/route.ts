@@ -6,6 +6,7 @@ import {
 } from "@/features/admin-users/server/admin-users-repository";
 import { parseCreateAdminUserInput } from "@/features/admin-users/validation";
 import { createAdminGetHandler } from "@/lib/api/admin-route";
+import { invalidateCachedResponses } from "@/lib/api/query-cache";
 import { apiFailure, apiSuccess } from "@/lib/api/responses";
 import { requireAdmin } from "@/lib/auth/require";
 
@@ -29,6 +30,8 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await createAdminUser(identity, input);
+    // Ticket assignees are derived from the admin roster and cached for 30s.
+    invalidateCachedResponses("support.tickets.assignees");
     return apiSuccess(result, { status: 201 });
   } catch (error) {
     if (error instanceof AdminUserError) {

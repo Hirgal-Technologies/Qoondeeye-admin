@@ -38,7 +38,16 @@ export async function getMerchantGatewaySummary(options?: {
   forceMoney?: boolean;
 }): Promise<MerchantGatewaySummary> {
   const db = createAdminClient();
-  const [devicesResult, unmatchedResult, ambiguousResult, paidBoard, safeguards, fulfillmentAlerts, manualHistory] =
+  const [
+    devicesResult,
+    unmatchedResult,
+    ambiguousResult,
+    paidBoard,
+    safeguards,
+    fulfillmentAlerts,
+    manualHistory,
+    reasons,
+  ] =
     await Promise.all([
       db.from("merchant_gateway_devices").select(MERCHANT_DEVICE_COLUMNS).order("name"),
       countMatchStatus("UNMATCHED"),
@@ -47,12 +56,12 @@ export async function getMerchantGatewaySummary(options?: {
       getProductionSafeguardView({ force: options?.forceMoney === true }),
       loadFulfillmentAlerts(),
       loadManualHistory(),
+      loadStatusReasons(),
     ]);
 
   throwIfError(devicesResult.error);
 
   const allDevices = rows<DeviceRow>(devicesResult.data).map(mapDevice);
-  const reasons = await loadStatusReasons(allDevices.map((device) => device.id));
   const withReasons = allDevices.map((device) => ({
     ...device,
     statusReason: reasons.get(device.id) ?? null,
@@ -99,7 +108,6 @@ export async function listMerchantPayments(
   status: PaymentReviewFilter,
 ): Promise<MerchantPaymentEvent[]> {
   const db = createAdminClient();
-  const names = await loadDeviceNames();
   let query = db
     .from("bundle_merchant_payment_events")
     .select(MERCHANT_PAYMENT_COLUMNS)
@@ -113,7 +121,7 @@ export async function listMerchantPayments(
     query = query.eq("match_status", status).order("received_at", { ascending: false });
   }
 
-  const { data, error } = await query;
+  const [names, { data, error }] = await Promise.all([loadDeviceNames(), query]);
   throwIfError(error);
   const events = rows<PaymentRow>(data).map((row) => mapPayment(row, names));
   if (status !== "AMBIGUOUS" || events.length === 0) return events;
@@ -130,8 +138,8 @@ export async function listMerchantPayments(
 
 export async function getGatewayHistory(): Promise<GatewayHistory> {
   const db = createAdminClient();
-  const names = await loadDeviceNames();
-  const [alertsResult, transitionsResult] = await Promise.all([
+  const [names, alertsResult, transitionsResult, fulfillment] = await Promise.all([
+    loadDeviceNames(),
     db
       .from("merchant_gateway_alerts")
       .select("id, device_id, kind, payload, created_at")
@@ -142,11 +150,11 @@ export async function getGatewayHistory(): Promise<GatewayHistory> {
       .select("id, device_id, from_status, to_status, reason, created_at")
       .order("created_at", { ascending: false })
       .limit(100),
+    loadFulfillmentAlerts(),
   ]);
   throwIfError(alertsResult.error);
   throwIfError(transitionsResult.error);
 
-  const fulfillment = await loadFulfillmentAlerts();
   const alerts = [
     ...((alertsResult.data ?? []) as AlertRow[]).map((row) => mapAlert(row, names)),
     ...fulfillment.rows.map(mapFulfillmentAlert),
@@ -163,8 +171,8 @@ export async function getGatewayHistory(): Promise<GatewayHistory> {
  */
 export async function getReconciliationContext(): Promise<ReconciliationContext> {
   const db = createAdminClient();
-  const names = await loadDeviceNames();
-  const [eventsResult, ordersResult, auditResult] = await Promise.all([
+  const [names, eventsResult, ordersResult, auditResult] = await Promise.all([
+    loadDeviceNames(),
     db
       .from("bundle_merchant_payment_events")
       .select(MERCHANT_PAYMENT_COLUMNS)
@@ -456,14 +464,17 @@ function rows<T>(data: unknown): T[] {
   return Array.isArray(data) ? (data as T[]) : [];
 }
 
-async function loadStatusReasons(deviceIds: string[]) {
+/**
+ * Latest non-empty transition reason per device. Read alongside the device
+ * list rather than after it: every transition belongs to a gateway device,
+ * so filtering by the device ids first only added a round trip.
+ */
+async function loadStatusReasons() {
   const reasons = new Map<string, string>();
-  if (deviceIds.length === 0) return reasons;
   const db = createAdminClient();
   const { data, error } = await db
     .from("merchant_gateway_health_transitions")
     .select("device_id, reason, created_at")
-    .in("device_id", deviceIds)
     .order("created_at", { ascending: false })
     .limit(200);
   if (error) return reasons;

@@ -1,5 +1,6 @@
 import "server-only";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { chunk, fetchAllPages } from "@/lib/supabase/paginate";
 import type {
   DateRangeParams,
   Granularity,
@@ -25,14 +26,19 @@ export async function getSignupTrend(
   params: DateRangeParams & { granularity: Granularity }
 ): Promise<{ date: string; count: number }[]> {
   const db = createAdminClient();
-  const { data } = await db
-    .from("profiles")
-    .select("created_at")
-    .gte("created_at", params.from)
-    .lte("created_at", params.to);
+  const data = await fetchAllPages<{ created_at: string }>((from, to) =>
+    db
+      .from("profiles")
+      .select("created_at")
+      .gte("created_at", params.from)
+      .lte("created_at", params.to)
+      .order("created_at")
+      .order("id")
+      .range(from, to)
+  );
 
   const buckets = new Map<string, number>();
-  for (const row of data ?? []) {
+  for (const row of data) {
     const key = truncKey(row.created_at, params.granularity);
     buckets.set(key, (buckets.get(key) ?? 0) + 1);
   }
@@ -56,7 +62,8 @@ export async function getAuthMethodBreakdown(): Promise<
   const perPage = 1000;
   while (true) {
     const { data, error } = await db.auth.admin.listUsers({ page, perPage });
-    if (error || !data) break;
+    // A failed page would under-count every method; fail the request instead.
+    if (error) throw error;
 
     for (const user of data.users) {
       const method =
@@ -81,24 +88,36 @@ export async function getAuthMethodBreakdown(): Promise<
  */
 export async function getCohortRetention(params: DateRangeParams): Promise<CohortRetentionRow[]> {
   const db = createAdminClient();
-  const { data: users } = await db
-    .from("profiles")
-    .select("id, created_at")
-    .gte("created_at", params.from)
-    .lte("created_at", params.to);
+  // Only activity on/after the earliest cohort week can count toward
+  // retention, so read that ledger window (in parallel with the cohort
+  // itself) rather than a huge `in` list.
+  const [users, activity] = await Promise.all([
+    fetchAllPages<{ id: string; created_at: string }>((from, to) =>
+      db
+        .from("profiles")
+        .select("id, created_at")
+        .gte("created_at", params.from)
+        .lte("created_at", params.to)
+        .order("created_at")
+        .order("id")
+        .range(from, to)
+    ),
+    fetchAllPages<{ id: string; user_id: string; date: string }>((from, to) =>
+      db
+        .from("expenses")
+        .select("id, user_id, date")
+        .gte("date", truncKey(params.from, "week"))
+        .order("id")
+        .range(from, to)
+    ),
+  ]);
 
-  if (!users || users.length === 0) return [];
-
-  const { data: activity } = await db
-    .from("expenses")
-    .select("user_id, date")
-    .in(
-      "user_id",
-      users.map((u) => u.id)
-    );
+  if (users.length === 0) return [];
+  const cohortUserIds = new Set(users.map((u) => String(u.id)));
 
   const activityByUser = new Map<string, string[]>();
-  for (const row of activity ?? []) {
+  for (const row of activity) {
+    if (!cohortUserIds.has(String(row.user_id))) continue;
     const list = activityByUser.get(row.user_id) ?? [];
     list.push(row.date);
     activityByUser.set(row.user_id, list);
@@ -150,13 +169,14 @@ export async function getNewUsers(
   params: DateRangeParams & { limit: number }
 ): Promise<NewUsersList> {
   const db = createAdminClient();
-  const { data, count } = await db
+  const { data, count, error } = await db
     .from("profiles")
     .select("id, email, full_name, user_type, created_at", { count: "exact" })
     .gte("created_at", params.from)
     .lte("created_at", params.to)
     .order("created_at", { ascending: false })
     .limit(params.limit);
+  if (error) throw error;
 
   const users = (data ?? []).map((row) => ({
     id: String(row.id),
@@ -169,37 +189,20 @@ export async function getNewUsers(
   return { total: count ?? users.length, users };
 }
 
-/**
- * PostgREST caps a single `select` at ~1000 rows, so a range scan of the
- * ledger has to be paged explicitly or the roster silently truncates.
- * MAX_PAGES bounds the work for very large windows.
- */
-const LEDGER_PAGE_SIZE = 1000;
-const LEDGER_MAX_PAGES = 50;
-
 type LedgerRow = { user_id: string; date: string; amount: number | string | null };
 
-async function readLedgerRange(from: string, to: string): Promise<LedgerRow[]> {
+function readLedgerRange(from: string, to: string): Promise<LedgerRow[]> {
   const db = createAdminClient();
-  const rows: LedgerRow[] = [];
-
-  for (let page = 0; page < LEDGER_MAX_PAGES; page++) {
-    const start = page * LEDGER_PAGE_SIZE;
-    const { data, error } = await db
+  return fetchAllPages<LedgerRow>((start, end) =>
+    db
       .from("expenses")
       .select("user_id, date, amount")
       .gte("date", from)
       .lte("date", to)
       .order("date", { ascending: true })
-      .range(start, start + LEDGER_PAGE_SIZE - 1);
-
-    if (error) throw error;
-    const batch = (data ?? []) as LedgerRow[];
-    rows.push(...batch);
-    if (batch.length < LEDGER_PAGE_SIZE) break;
-  }
-
-  return rows;
+      .order("id", { ascending: true })
+      .range(start, end)
+  );
 }
 
 /**
@@ -231,23 +234,30 @@ export async function getActiveUsers(
   }
 
   const ranked = [...byUser.entries()]
+    // The id tie-break keeps the order (and which users make the `limit`
+    // cut) independent of the order ledger rows arrive in.
     .sort(
-      ([, a], [, b]) =>
-        b.lastActiveAt.localeCompare(a.lastActiveAt) || b.entries - a.entries
+      ([aId, a], [bId, b]) =>
+        b.lastActiveAt.localeCompare(a.lastActiveAt) ||
+        b.entries - a.entries ||
+        aId.localeCompare(bId)
     )
     .slice(0, params.limit);
 
   const db = createAdminClient();
-  const { data: profiles } = await db
-    .from("profiles")
-    .select("id, email, full_name, created_at")
-    .in(
-      "id",
-      ranked.map(([id]) => id)
-    );
+  const profileChunks = await Promise.all(
+    chunk(ranked.map(([id]) => id)).map(async (ids) => {
+      const { data, error } = await db
+        .from("profiles")
+        .select("id, email, full_name, created_at")
+        .in("id", ids);
+      if (error) throw error;
+      return data ?? [];
+    })
+  );
 
   const profileById = new Map(
-    (profiles ?? []).map((row) => [String(row.id), row])
+    profileChunks.flat().map((row) => [String(row.id), row])
   );
 
   const users: ActiveUserRow[] = ranked.map(([id, aggregate]) => {
@@ -278,12 +288,21 @@ export async function getChurn(
   cutoff.setUTCDate(cutoff.getUTCDate() - inactiveDays);
   const cutoffDate = cutoff.toISOString().slice(0, 10);
 
-  const [{ count: totalUsers }, { data: recentActivity }] = await Promise.all([
+  const [profilesResult, recentActivity] = await Promise.all([
     db.from("profiles").select("id", { count: "exact", head: true }),
-    db.from("expenses").select("user_id").gte("date", cutoffDate),
+    fetchAllPages<{ id: string; user_id: string }>((from, to) =>
+      db
+        .from("expenses")
+        .select("id, user_id")
+        .gte("date", cutoffDate)
+        .order("id")
+        .range(from, to)
+    ),
   ]);
+  if (profilesResult.error) throw profilesResult.error;
+  const totalUsers = profilesResult.count;
 
-  const activeUserIds = new Set((recentActivity ?? []).map((r) => r.user_id));
+  const activeUserIds = new Set(recentActivity.map((r) => r.user_id));
   const total = totalUsers ?? 0;
   const churnedCount = Math.max(total - activeUserIds.size, 0);
 

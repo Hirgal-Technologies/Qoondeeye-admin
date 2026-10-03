@@ -22,7 +22,8 @@ export async function lookupSupportUser(
   let authUser: User | null = null;
 
   if (isUuid(input.identifier)) {
-    const { data } = await db.auth.admin.getUserById(input.identifier);
+    const { data, error } = await db.auth.admin.getUserById(input.identifier);
+    if (error && error.status !== 404) throw error;
     authUser = data.user ?? null;
   } else {
     authUser = await findAuthUserByEmail(input.identifier.toLowerCase());
