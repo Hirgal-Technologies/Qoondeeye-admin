@@ -4,9 +4,11 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import {
+  RESUME_CANONICAL_FULFILLMENT_SUPPORTED,
   alertMatchesFilter,
   displayOptionalCount,
   fulfillmentOperatorAction,
+  isCanonicalResumeCase,
   isPaidAwaitingFulfillment,
   maskPhone,
   operatorMayPurchase,
@@ -14,7 +16,11 @@ import {
   summarizeDeviceCounts,
 } from "../features/merchant-gateway/operations.ts";
 import { formatExposure, presentProductionStatus } from "../features/operations/present-status.ts";
-import { isLabGateway, operationalDevices } from "../features/merchant-gateway/presentation.ts";
+import {
+  isLabGateway,
+  operationalDevices,
+  partitionOperationalGateways,
+} from "../features/merchant-gateway/presentation.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -303,6 +309,90 @@ test("manual recovery is separate from catalog purchase, and secrets stay server
     if (clientFile || !serverOnly) offenders.push(file);
   }
   assert.deepEqual(offenders, []);
+});
+
+test("revoked and stale gateways do not change the active health summary", () => {
+  const devices = [
+    { id: "live", name: "A32 preview gateway", appVersion: "1.0.2", status: "ONLINE" },
+    { id: "old", name: "Galaxy A32", appVersion: "1.0.2", status: "OFFLINE" },
+    { id: "debug", name: "Galaxy A32 debug", appVersion: "1.0.2", status: "OFFLINE" },
+    { id: "revoked", name: "edahab-a32", appVersion: "1.0.2", status: "REVOKED" },
+    { id: "sim", name: "Simulator gateway", appVersion: "simulator-1", status: "OFFLINE" },
+  ];
+  const roster = partitionOperationalGateways(devices);
+  assert.deepEqual(
+    roster.active.map((device) => device.id),
+    ["live"],
+  );
+  assert.deepEqual(
+    roster.historical.map((device) => device.id).sort(),
+    ["debug", "old", "revoked", "sim"],
+  );
+  const counts = summarizeDeviceCounts(
+    roster.active.map((device) => ({ status: device.status, lab: false })),
+  );
+  assert.equal(counts.online, 1);
+  assert.equal(counts.offline, 0);
+  assert.equal(counts.revoked, 0);
+  const outage = partitionOperationalGateways([
+    { id: "only", name: "A32 preview gateway", appVersion: "1.0.2", status: "OFFLINE", lastHeartbeatAt: "2026-10-03T19:00:00.000Z" },
+    { id: "older", name: "Galaxy A32", appVersion: "1.0.2", status: "OFFLINE", lastHeartbeatAt: "2026-10-01T17:00:00.000Z" },
+  ]);
+  assert.deepEqual(outage.active.map((device) => device.id), ["only"]);
+  assert.deepEqual(outage.historical.map((device) => device.id), ["older"]);
+});
+
+test("closed paid orders do not count as awaiting fulfillment", () => {
+  for (const fulfillment of ["COMPLETED", "CANCELLED", "REFUNDED", "RESOLVED"]) {
+    assert.equal(isPaidAwaitingFulfillment("PAYMENT_CONFIRMED", fulfillment), false);
+  }
+  assert.equal(isPaidAwaitingFulfillment("PAYMENT_CONFIRMED", "PROCESSING"), true);
+  assert.equal(isPaidAwaitingFulfillment("PAYMENT_CONFIRMED", "NOT_STARTED"), true);
+  assert.equal(isPaidAwaitingFulfillment("PAYMENT_CONFIRMED", "FAILED"), true);
+});
+
+test("resume fulfillment is offered only when the backend supports the canonical path", () => {
+  const resumeCase = {
+    paymentStatus: "PAYMENT_CONFIRMED",
+    fulfillmentStatus: "NOT_STARTED",
+    failureCode: null,
+    topTayoTransactionIds: [],
+    reservation: { known: true as const, outcome: null },
+  };
+  assert.equal(isCanonicalResumeCase(resumeCase), true);
+  assert.equal(RESUME_CANONICAL_FULFILLMENT_SUPPORTED, false);
+  assert.equal(fulfillmentOperatorAction(resumeCase), "refresh_only");
+  assert.equal(
+    fulfillmentOperatorAction(resumeCase, { resumeSupported: true }),
+    "resume_fulfillment",
+  );
+  assert.equal(operatorMayPurchase("resume_fulfillment"), false);
+  assert.equal(
+    fulfillmentOperatorAction({
+      ...resumeCase,
+      reservation: { known: true, outcome: "reserved" },
+    }),
+    "fulfill_manually",
+  );
+  assert.equal(
+    fulfillmentOperatorAction({
+      paymentStatus: "PAYMENT_CONFIRMED",
+      fulfillmentStatus: "PROCESSING",
+      failureCode: null,
+      topTayoTransactionIds: ["tt-live"],
+      reservation: { known: true, outcome: "processing" },
+    }),
+    "check_toptayo",
+  );
+  const panel = readFileSync(
+    join(root, "features/merchant-gateway/components/paid-orders-panel.tsx"),
+    "utf8",
+  );
+  assert.equal(panel.includes("min-w-[1280px]"), false);
+  assert.match(panel, /sticky right-0/);
+  assert.match(panel, /Backend required: resume canonical fulfillment/);
+  assert.equal(panel.includes("Purchase again"), false);
+  assert.equal(panel.includes("Retry recharge"), false);
 });
 
 function sourceFiles(dir: string): string[] {

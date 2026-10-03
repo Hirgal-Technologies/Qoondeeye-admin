@@ -14,7 +14,9 @@ import {
   canEnableConfirm,
   compareEventToOrder,
   formatMoney,
+  formatOperatorNetwork,
   formatRelativeTime,
+  paymentCandidateOrders,
   fulfillmentResultCopy,
   gatewayHeadline,
   inferAuthorizedPaymentMethods,
@@ -86,9 +88,23 @@ test("gateway cards infer authorized SIMs and mute lab devices", () => {
   );
 });
 
+test("production money labels stay quiet and unavailable values stay explicit", () => {
+  assert.equal(formatOperatorNetwork(true, "wifi"), "Wi-Fi");
+  assert.equal(formatOperatorNetwork(false, "wifi"), "Disconnected");
+  assert.equal(formatMoney(null, "USD"), "—");
+  assert.notEqual(formatMoney(null, "USD"), "$0.00");
+});
+
+test("ambiguous payments can name pending order candidates", () => {
+  const matches = paymentCandidateOrders(event(), [order(), order({ id: "33333333-3333-4333-8333-333333333333", bundleName: "Other" })]);
+  assert.equal(matches.length, 2);
+  assert.equal(paymentCandidateOrders(event(), [order({ sellingPriceCents: 2500 })]).length, 0);
+});
+
 test("payment review filters and amounts stay operator-facing", () => {
   assert.equal(parsePaymentReviewFilter("manual_review"), "MANUAL_REVIEW");
   assert.equal(parsePaymentReviewFilter("matched"), "MATCHED");
+  assert.equal(parsePaymentReviewFilter("resolved"), "RESOLVED");
   assert.equal(parsePaymentReviewFilter("paid"), null);
   assert.equal(formatMoney(1800, "USD"), "$18.00");
 });
@@ -316,6 +332,8 @@ function event(overrides: Partial<MerchantPaymentEvent> = {}): MerchantPaymentEv
     matchedAt: null,
     deviceName: "Counter",
     order: null,
+    candidateCount: null,
+    candidateOrders: [],
     ...overrides,
   };
 }

@@ -26,13 +26,17 @@ import {
   isLabGateway,
   mapAuditEntry,
   normalizeGatewayStatus,
+  partitionOperationalGateways,
+  paymentCandidateOrders,
   transitionTone,
 } from "@/features/merchant-gateway/presentation";
 import { loadPaidFulfillmentBoard } from "@/features/merchant-gateway/server/paid-orders";
 import { getProductionSafeguardView } from "@/features/operations/server/safeguards";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-export async function getMerchantGatewaySummary(): Promise<MerchantGatewaySummary> {
+export async function getMerchantGatewaySummary(options?: {
+  forceMoney?: boolean;
+}): Promise<MerchantGatewaySummary> {
   const db = createAdminClient();
   const [
     devicesResult,
@@ -49,7 +53,7 @@ export async function getMerchantGatewaySummary(): Promise<MerchantGatewaySummar
       countMatchStatus("UNMATCHED"),
       countMatchStatus("AMBIGUOUS"),
       loadPaidFulfillmentBoard(),
-      getProductionSafeguardView(),
+      getProductionSafeguardView({ force: options?.forceMoney === true }),
       loadFulfillmentAlerts(),
       loadManualHistory(),
       loadStatusReasons(),
@@ -62,14 +66,13 @@ export async function getMerchantGatewaySummary(): Promise<MerchantGatewaySummar
     ...device,
     statusReason: reasons.get(device.id) ?? null,
   }));
-  const devices = withReasons.filter((device) => !isLabGateway(device) && device.status !== "REVOKED");
-  const historicalDevices = withReasons.filter(
-    (device) => isLabGateway(device) || device.status === "REVOKED",
-  );
+  const roster = partitionOperationalGateways(withReasons);
+  const devices = roster.active;
+  const historicalDevices = roster.historical;
   const deviceCounts = summarizeDeviceCounts(
-    withReasons.map((device) => ({
+    devices.map((device) => ({
       status: device.status,
-      lab: isLabGateway(device),
+      lab: false,
     })),
   );
 
@@ -77,7 +80,7 @@ export async function getMerchantGatewaySummary(): Promise<MerchantGatewaySummar
     generatedAt: new Date().toISOString(),
     devices,
     historicalDevices,
-    excludedLabGateways: deviceCounts.excludedLabGateways,
+    excludedLabGateways: withReasons.filter((device) => isLabGateway(device)).length,
     counts: {
       online: deviceCounts.online,
       degraded: deviceCounts.degraded,
@@ -112,13 +115,25 @@ export async function listMerchantPayments(
 
   if (status === "MATCHED") {
     query = query.eq("match_status", "MATCHED").order("matched_at", { ascending: false });
+  } else if (status === "RESOLVED") {
+    query = query.in("match_status", ["EXPIRED", "INVALID"]).order("received_at", { ascending: false });
   } else {
     query = query.eq("match_status", status).order("received_at", { ascending: false });
   }
 
   const [names, { data, error }] = await Promise.all([loadDeviceNames(), query]);
   throwIfError(error);
-  return rows<PaymentRow>(data).map((row) => mapPayment(row, names));
+  const events = rows<PaymentRow>(data).map((row) => mapPayment(row, names));
+  if (status !== "AMBIGUOUS" || events.length === 0) return events;
+  const pending = await loadPendingOrders();
+  return events.map((event) => {
+    const candidates = paymentCandidateOrders(event, pending);
+    return {
+      ...event,
+      candidateCount: candidates.length,
+      candidateOrders: candidates.map((order) => ({ id: order.id, bundleName: order.bundleName })),
+    };
+  });
 }
 
 export async function getGatewayHistory(): Promise<GatewayHistory> {
@@ -181,12 +196,37 @@ export async function getReconciliationContext(): Promise<ReconciliationContext>
   throwIfError(ordersResult.error);
   throwIfError(auditResult.error);
 
+  const eligibleOrders = rows<OrderRow>(ordersResult.data).map(mapOrder);
+  const unresolvedEvents = rows<PaymentRow>(eventsResult.data).map((row) => {
+    const event = mapPayment(row, names);
+    if (event.status !== "AMBIGUOUS") return event;
+    const candidates = paymentCandidateOrders(event, eligibleOrders);
+    return {
+      ...event,
+      candidateCount: candidates.length,
+      candidateOrders: candidates.map((order) => ({ id: order.id, bundleName: order.bundleName })),
+    };
+  });
+
   return {
     available: true,
-    unresolvedEvents: rows<PaymentRow>(eventsResult.data).map((row) => mapPayment(row, names)),
-    eligibleOrders: rows<OrderRow>(ordersResult.data).map(mapOrder),
+    unresolvedEvents,
+    eligibleOrders,
     audit: rows<Parameters<typeof mapAuditEntry>[0]>(auditResult.data).map(mapAuditEntry),
   };
+}
+
+async function loadPendingOrders() {
+  const db = createAdminClient();
+  const { data, error } = await db
+    .from("bundle_purchase_orders")
+    .select(PENDING_ORDER_COLUMNS)
+    .eq("payment_status", "PENDING")
+    .eq("fulfillment_status", "NOT_STARTED")
+    .order("created_at", { ascending: false })
+    .limit(100);
+  if (error) return [];
+  return rows<OrderRow>(data).map(mapOrder);
 }
 
 async function countMatchStatus(status: string) {
@@ -328,6 +368,8 @@ function mapPayment(row: PaymentRow, names: Map<string, string>): MerchantPaymen
     matchedAt: row.matched_at,
     deviceName: row.device_id ? (names.get(String(row.device_id)) ?? "Gateway") : null,
     order: orderRow ? mapOrder(orderRow) : null,
+    candidateCount: null,
+    candidateOrders: [],
   };
 }
 

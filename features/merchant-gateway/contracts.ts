@@ -11,7 +11,8 @@ export type PaymentReviewFilter =
   | "UNMATCHED"
   | "AMBIGUOUS"
   | "MANUAL_REVIEW"
-  | "MATCHED";
+  | "MATCHED"
+  | "RESOLVED";
 
 export type MerchantGatewaySection =
   | "gateways"
@@ -142,6 +143,9 @@ export type MerchantPaymentEvent = {
   matchedAt: string | null;
   deviceName: string | null;
   order: BundleOrderSnapshot | null;
+  /** Pending orders that share amount, currency, method, and receiver. Null when not computed. */
+  candidateCount: number | null;
+  candidateOrders: Array<{ id: string; bundleName: string }>;
 };
 
 export type GatewayHistoryItem = {

@@ -3,14 +3,19 @@
 import type { ProductionSafeguardView, ExposedValue } from "@/features/operations/contracts";
 import { formatExposure, formatUsdFromCents } from "@/features/operations/present-status";
 import { formatTimestamp } from "@/features/merchant-gateway/presentation";
+import { formatAgeShort } from "@/lib/hooks/live-refresh";
+import { useTickingNow } from "@/lib/hooks/use-ticking-now";
 
 export function SafeguardsPanel({
   view,
   showBalance = true,
+  compact = false,
 }: {
   view: ProductionSafeguardView;
   showBalance?: boolean;
+  compact?: boolean;
 }) {
+  const now = useTickingNow();
   const rows: Array<{ label: string; value: string; tone: RowTone; detail?: string }> = [];
   rows.push({
     label: "Automated sales",
@@ -59,17 +64,37 @@ export function SafeguardsPanel({
   );
 
   return (
-    <section className="rounded-lg border bg-card p-4 shadow-[var(--shadow-card)]">
-      <h2 className="text-sm font-semibold text-foreground">Production money</h2>
-      <p className="mt-1 text-xs leading-5 text-muted-foreground">
-        Production status from Qoondeeye. An unknown balance stays unavailable.
-      </p>
-      <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 xl:grid-cols-4">
+    <section className={`rounded-lg border bg-card shadow-[var(--shadow-card)] ${compact ? "px-3 py-2.5" : "p-4"}`}>
+      <div className="flex items-baseline justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-foreground">Production money</h2>
+          {compact ? null : (
+            <p className="text-xs leading-5 text-muted-foreground">
+              Production status from Qoondeeye. An unknown balance stays unavailable.
+            </p>
+          )}
+        </div>
+        <p className="shrink-0 text-right text-[11px] text-muted-foreground">
+          Last updated: {formatAgeShort(view.generatedAt, now)}
+          {view.stale ? <span className="mt-0.5 block">Showing previous snapshot</span> : null}
+        </p>
+      </div>
+      <dl
+        className={
+          compact
+            ? "mt-2 grid grid-cols-2 gap-x-4 gap-y-2 sm:grid-cols-4 xl:grid-cols-7"
+            : "mt-3 grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3 xl:grid-cols-4"
+        }
+      >
         {rows.map((row) => (
           <div key={row.label} className="min-w-0">
             <dt className="text-[11px] text-muted-foreground">{row.label}</dt>
-            <dd className={`mt-0.5 truncate text-sm font-medium ${toneClass(row.tone)}`}>{row.value}</dd>
-            {row.detail ? <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{row.detail}</p> : null}
+            <dd className={`mt-0.5 truncate font-medium ${compact ? "text-xs" : "text-sm"} ${toneClass(compact && row.tone === "success" ? "neutral" : row.tone)}`}>
+              {row.value}
+            </dd>
+            {!compact && row.detail ? (
+              <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{row.detail}</p>
+            ) : null}
           </div>
         ))}
       </dl>
