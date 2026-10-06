@@ -346,6 +346,9 @@ type PaymentRow = {
   match_status: string | null;
   matched_at: string | null;
   created_at: string | null;
+  faahfaahin: string | null;
+  bank_ticket: string | null;
+  provider_reference: string | null;
   matched_order?: OrderRow | OrderRow[] | null;
 };
 
@@ -370,6 +373,9 @@ function mapPayment(row: PaymentRow, names: Map<string, string>): MerchantPaymen
     order: orderRow ? mapOrder(orderRow) : null,
     candidateCount: null,
     candidateOrders: [],
+    faahfaahin: row.faahfaahin,
+    bankTicket: row.bank_ticket,
+    providerReference: row.provider_reference,
   };
 }
 

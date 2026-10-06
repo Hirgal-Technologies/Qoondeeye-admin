@@ -57,6 +57,7 @@ import {
   parsePaymentReviewFilter,
   paymentFilterLabel,
   reconciliationErrorMessage,
+  salaamReconciliationLabel,
   shouldRefreshReconciliation,
 } from "@/features/merchant-gateway/presentation";
 import { SafeguardsPanel } from "@/features/operations/components/safeguards-panel";
@@ -134,6 +135,12 @@ function AuthorizedMerchantGateway({ canReconcile }: { canReconcile: boolean }) 
         description="Live gateway health, paid orders waiting for a bundle, and payment reconciliation."
         actions={
           <div className="flex items-center gap-3">
+            <Link
+              href="/dashboard/merchant-gateway/salaam-review"
+              className="text-sm font-semibold text-primary"
+            >
+              Salaam review
+            </Link>
             <LiveStatus
               refreshing={
                 summary.refreshing ||
@@ -710,6 +717,21 @@ function PaymentInspection({ event }: { event: MerchantPaymentEvent }) {
         <Fact label="Provider time" value={formatTimestamp(event.providerTimestamp)} />
         <Fact label="Uploaded" value={formatTimestamp(event.uploadedAt)} />
         <Fact label="Status" value={formatStatusLabel(event.status)} />
+        <Fact
+          label="Salaam outcome"
+          value={
+            (event.paymentMethod ?? event.provider) === "salaam_bank"
+              ? salaamReconciliationLabel({
+                  status: event.status,
+                  failureCode: event.order?.failureCode,
+                  fulfillmentStatus: event.order?.fulfillmentStatus,
+                })
+              : "—"
+          }
+        />
+        <Fact label="Faahfaahin" value={event.faahfaahin || "Missing"} />
+        <Fact label="Tix" value={event.bankTicket || "—"} />
+        <Fact label="Reference" value={event.providerReference || "—"} />
         <Fact label="Gateway" value={event.deviceName || "—"} />
         <Fact label="Provider transaction id" value={event.providerTxnId || "Not included in the SMS"} />
         <Fact
