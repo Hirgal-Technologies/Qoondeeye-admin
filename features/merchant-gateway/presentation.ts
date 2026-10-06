@@ -17,6 +17,9 @@ export const PAYMENT_REVIEW_FILTERS: PaymentReviewFilter[] = [
   "UNMATCHED",
   "AMBIGUOUS",
   "MANUAL_REVIEW",
+  "NEEDS_REVIEW",
+  "UNMATCHED_AMOUNT",
+  "CONFIGURATION_ERROR",
   "MATCHED",
   "RESOLVED",
 ];
@@ -421,8 +424,37 @@ export function compareEventToOrder(
   ];
 }
 
+export function salaamReconciliationLabel(input: {
+  status: string;
+  failureCode?: string | null;
+  fulfillmentStatus?: string | null;
+}): string {
+  const status = input.status.toUpperCase();
+  if (status === "NEEDS_REVIEW") return "Missing or invalid destination";
+  if (status === "UNMATCHED_AMOUNT") return "Unknown amount";
+  if (status === "CONFIGURATION_ERROR") return "Configuration error";
+  if (status === "UNMATCHED") return "Receipt only";
+  const failure = input.failureCode ?? "";
+  if (failure === "recharge_uncertain") return "Recharge uncertain";
+  if (
+    failure === "production_disabled" ||
+    failure === "daily_recharge_limit_reached" ||
+    failure === "toptayo_balance_low" ||
+    failure === "toptayo_balance_unavailable" ||
+    failure === "production_safeguard_misconfigured"
+  ) {
+    return "Fulfillment held";
+  }
+  if (input.fulfillmentStatus === "COMPLETED") return "Completed";
+  if (status === "MATCHED") return "Automatic match / fulfilling";
+  return status.charAt(0) + status.slice(1).toLowerCase();
+}
+
 export function paymentFilterLabel(filter: PaymentReviewFilter) {
   if (filter === "MANUAL_REVIEW") return "Needs review";
+  if (filter === "NEEDS_REVIEW") return "Missing destination";
+  if (filter === "UNMATCHED_AMOUNT") return "Unknown amount";
+  if (filter === "CONFIGURATION_ERROR") return "Configuration error";
   if (filter === "MATCHED") return "Recently matched";
   if (filter === "RESOLVED") return "Resolved";
   return filter.charAt(0) + filter.slice(1).toLowerCase();

@@ -334,6 +334,9 @@ function event(overrides: Partial<MerchantPaymentEvent> = {}): MerchantPaymentEv
     order: null,
     candidateCount: null,
     candidateOrders: [],
+    faahfaahin: null,
+    bankTicket: null,
+    providerReference: null,
     ...overrides,
   };
 }

@@ -40,6 +40,9 @@ export const MERCHANT_PAYMENT_COLUMNS = [
   "matched_order_id",
   "matched_at",
   "created_at",
+  "faahfaahin",
+  "bank_ticket",
+  "provider_reference",
   "matched_order:bundle_purchase_orders!matched_order_id(id,bundle_name,payment_status,fulfillment_status,selling_price_cents,currency,payer_phone,payment_method,merchant_receiver_msisdn,receiver_phone,failure_code,created_at,expires_at)",
 ].join(",");
 

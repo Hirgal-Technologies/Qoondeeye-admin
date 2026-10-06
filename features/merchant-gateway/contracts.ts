@@ -11,6 +11,9 @@ export type PaymentReviewFilter =
   | "UNMATCHED"
   | "AMBIGUOUS"
   | "MANUAL_REVIEW"
+  | "NEEDS_REVIEW"
+  | "UNMATCHED_AMOUNT"
+  | "CONFIGURATION_ERROR"
   | "MATCHED"
   | "RESOLVED";
 
@@ -146,6 +149,9 @@ export type MerchantPaymentEvent = {
   /** Pending orders that share amount, currency, method, and receiver. Null when not computed. */
   candidateCount: number | null;
   candidateOrders: Array<{ id: string; bundleName: string }>;
+  faahfaahin: string | null;
+  bankTicket: string | null;
+  providerReference: string | null;
 };
 
 export type GatewayHistoryItem = {
