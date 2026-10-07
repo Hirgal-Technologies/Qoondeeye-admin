@@ -21,7 +21,9 @@ export async function listSalaamReviews(): Promise<SalaamReviewRow[]> {
     .order("received_at", { ascending: false })
     .limit(100);
   if (error) throw error;
-  const mapped = ((data ?? []) as Record<string, unknown>[]).map((row) => mapSalaamReviewRecord(row));
+  const mapped = ((data ?? []) as unknown as Record<string, unknown>[]).map((row) =>
+    mapSalaamReviewRecord(row),
+  );
   const identities = await loadSalaamAdminIdentities(
     db,
     mapped.flatMap((row) => [row.claimedBy, row.resolvedBy]),
