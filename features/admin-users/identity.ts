@@ -91,6 +91,7 @@ export function salaamReviewActorLines(row: {
   claimedByName?: string | null;
   resolvedBy: string | null;
   resolvedByName?: string | null;
+  resolvedAt?: string | null;
 }): string[] {
   const lines: string[] = [];
   if (row.claimedBy) {
@@ -98,6 +99,9 @@ export function salaamReviewActorLines(row: {
   }
   if (row.resolvedBy) {
     lines.push(`Resolved by: ${row.resolvedByName?.trim() || row.resolvedBy}`);
+  }
+  if (row.resolvedAt) {
+    lines.push(`Resolved at: ${row.resolvedAt}`);
   }
   return lines;
 }

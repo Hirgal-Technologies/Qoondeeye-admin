@@ -33,7 +33,20 @@ export async function listSalaamReviews(): Promise<SalaamReviewRow[]> {
 
 export async function forwardSalaamReview(
   accessToken: string,
-  body: { action: "preview" | "claim" | "resolve"; reviewId: string; destination?: string },
+  body: {
+    action:
+      | "preview"
+      | "claim"
+      | "resolve"
+      | "payable_bundles"
+      | "select_intended_bundle"
+      | "resolve_without_fulfillment";
+    reviewId: string;
+    destination?: string;
+    mappingId?: string;
+    resolutionNote?: string;
+    confirmed?: boolean;
+  },
 ): Promise<{ ok: true; payload: Record<string, unknown> } | { ok: false; status: number; message: string }> {
   const supabaseUrl = process.env.SUPABASE_URL;
   const anonKey = process.env.SUPABASE_KEY;

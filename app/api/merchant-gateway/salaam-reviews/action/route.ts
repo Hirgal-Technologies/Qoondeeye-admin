@@ -11,10 +11,20 @@ export async function POST(request: NextRequest) {
     action?: string;
     reviewId?: string;
     destination?: string;
+    mappingId?: string;
+    resolutionNote?: string;
+    confirmed?: boolean;
   } | null;
   const action = body?.action;
   const reviewId = body?.reviewId?.trim() ?? "";
-  if ((action !== "preview" && action !== "claim" && action !== "resolve") || !reviewId) {
+  const allowed =
+    action === "preview" ||
+    action === "claim" ||
+    action === "resolve" ||
+    action === "payable_bundles" ||
+    action === "select_intended_bundle" ||
+    action === "resolve_without_fulfillment";
+  if (!allowed || !reviewId) {
     return apiFailure("invalid review action", 400);
   }
   const accessToken = await getAdminAccessToken();
@@ -23,6 +33,9 @@ export async function POST(request: NextRequest) {
     action,
     reviewId,
     destination: body?.destination,
+    mappingId: body?.mappingId,
+    resolutionNote: body?.resolutionNote,
+    confirmed: body?.confirmed === true,
   });
   if (!outcome.ok) return apiFailure(outcome.message, outcome.status);
   return apiSuccess(outcome.payload);
