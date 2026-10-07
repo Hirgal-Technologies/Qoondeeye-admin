@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { PageHeading } from "@/components/dashboard/PageHeading";
+import { salaamReviewActorLines } from "@/features/admin-users/identity";
 
 type Review = {
   id: string;
@@ -16,6 +17,9 @@ type Review = {
   providerReference: string | null;
   receivedAt: string;
   claimedBy: string | null;
+  claimedByName: string | null;
+  resolvedBy: string | null;
+  resolvedByName: string | null;
   bundleId: string;
   providerName: string | null;
   bundleName: string | null;
@@ -127,7 +131,11 @@ export function SalaamReviewPage({ hasAdminRole }: { hasAdminRole: boolean }) {
               <p className="text-sm">Tix: {row.bankTicket || "Missing"}</p>
               <p className="text-sm">Ref: {row.providerReference || "Missing"}</p>
               <p className="text-sm">Status: {row.status}</p>
-              {row.claimedBy ? <p className="text-sm">Claimed by: {row.claimedBy}</p> : null}
+              {salaamReviewActorLines(row).map((line) => (
+                <p key={line} className="text-sm">
+                  {line}
+                </p>
+              ))}
               {row.status !== "resolved" ? (
                 <div className="mt-3 flex flex-col gap-2">
                   <button

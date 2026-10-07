@@ -1,4 +1,9 @@
 import "server-only";
+import {
+  adminIdentityFromRecord,
+  withSalaamAdminNames,
+  type AdminIdentitySource,
+} from "@/features/admin-users/identity";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export type SalaamReviewRow = {
@@ -13,8 +18,10 @@ export type SalaamReviewRow = {
   providerReference: string | null;
   receivedAt: string;
   claimedBy: string | null;
+  claimedByName: string | null;
   claimedAt: string | null;
   resolvedBy: string | null;
+  resolvedByName: string | null;
   resolvedAt: string | null;
   bundleId: string;
   providerName: string | null;
@@ -32,7 +39,7 @@ export async function listSalaamReviews(): Promise<SalaamReviewRow[]> {
     .order("received_at", { ascending: false })
     .limit(100);
   if (error) throw error;
-  return ((data ?? []) as Record<string, unknown>[]).map((row) => {
+  const mapped = ((data ?? []) as Record<string, unknown>[]).map((row) => {
     const mapping = row.offline_bundle_payment_mappings as Record<string, unknown> | null;
     return {
       id: String(row.id),
@@ -47,8 +54,10 @@ export async function listSalaamReviews(): Promise<SalaamReviewRow[]> {
       providerReference: typeof row.provider_reference === "string" ? row.provider_reference : null,
       receivedAt: String(row.received_at),
       claimedBy: typeof row.claimed_by === "string" ? row.claimed_by : null,
+      claimedByName: null,
       claimedAt: typeof row.claimed_at === "string" ? row.claimed_at : null,
       resolvedBy: typeof row.resolved_by === "string" ? row.resolved_by : null,
+      resolvedByName: null,
       resolvedAt: typeof row.resolved_at === "string" ? row.resolved_at : null,
       bundleId: mapping ? String(mapping.top_tayo_bundle_id) : "",
       providerName: typeof row.provider_name === "string" ? row.provider_name : null,
@@ -58,6 +67,11 @@ export async function listSalaamReviews(): Promise<SalaamReviewRow[]> {
       eventId: String(row.merchant_payment_event_id),
     };
   });
+  const identities = await loadSalaamAdminIdentities(
+    db,
+    mapped.flatMap((row) => [row.claimedBy, row.resolvedBy]),
+  );
+  return mapped.map((row) => withSalaamAdminNames(row, identities));
 }
 
 export async function forwardSalaamReview(
@@ -88,4 +102,74 @@ export async function forwardSalaamReview(
     };
   }
   return { ok: true, payload };
+}
+
+async function loadSalaamAdminIdentities(
+  db: ReturnType<typeof createAdminClient>,
+  adminIds: Array<string | null>,
+): Promise<Map<string, AdminIdentitySource>> {
+  const ids = [...new Set(adminIds.filter((id): id is string => Boolean(id)))];
+  const identities = new Map<string, AdminIdentitySource>();
+  for (const id of ids) identities.set(id, { id });
+  if (ids.length === 0) return identities;
+
+  try {
+    const [profiles, admins] = await Promise.all([
+      db.from("profiles").select("id, full_name").in("id", ids),
+      db.from("admin_users").select("id, email").in("id", ids),
+    ]);
+    if (!profiles.error) {
+      for (const row of (profiles.data ?? []) as Array<{ id: string; full_name: string | null }>) {
+        const current = identities.get(String(row.id));
+        if (!current) continue;
+        identities.set(
+          current.id,
+          adminIdentityFromRecord({
+            id: current.id,
+            profileFullName: row.full_name,
+            email: current.email,
+          }),
+        );
+      }
+    }
+    if (!admins.error) {
+      for (const row of (admins.data ?? []) as Array<{ id: string; email: string | null }>) {
+        const current = identities.get(String(row.id)) ?? { id: String(row.id) };
+        identities.set(
+          current.id,
+          adminIdentityFromRecord({
+            id: current.id,
+            profileFullName: current.fullName,
+            email: row.email,
+            metadata: current.username ? { username: current.username } : null,
+          }),
+        );
+      }
+    }
+    await Promise.all(
+      ids.map(async (id) => {
+        const current = identities.get(id);
+        if (current?.fullName?.trim()) return;
+        try {
+          const authResult = await db.auth.admin.getUserById(id);
+          if (authResult.error || !authResult.data.user) return;
+          const user = authResult.data.user;
+          identities.set(
+            id,
+            adminIdentityFromRecord({
+              id,
+              profileFullName: current?.fullName,
+              email: current?.email ?? user.email,
+              metadata: (user.user_metadata ?? {}) as Record<string, unknown>,
+            }),
+          );
+        } catch {
+          // A missing auth user still leaves the roster email or the raw id.
+        }
+      }),
+    );
+  } catch {
+    return identities;
+  }
+  return identities;
 }
