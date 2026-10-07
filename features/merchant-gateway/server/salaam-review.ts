@@ -4,69 +4,24 @@ import {
   withSalaamAdminNames,
   type AdminIdentitySource,
 } from "@/features/admin-users/identity";
+import {
+  mapSalaamReviewRecord,
+  SALAAM_REVIEW_LIST_SELECT,
+  type SalaamReviewRecord,
+} from "@/features/merchant-gateway/salaam-review-query";
 import { createAdminClient } from "@/lib/supabase/admin";
 
-export type SalaamReviewRow = {
-  id: string;
-  status: "needs_review" | "claimed" | "resolved";
-  reason: "missing_faahfaahin" | "invalid_destination";
-  amountCents: number;
-  payerMsisdn: string;
-  originalFaahfaahin: string | null;
-  correctedDestination: string | null;
-  bankTicket: string | null;
-  providerReference: string | null;
-  receivedAt: string;
-  claimedBy: string | null;
-  claimedByName: string | null;
-  claimedAt: string | null;
-  resolvedBy: string | null;
-  resolvedByName: string | null;
-  resolvedAt: string | null;
-  bundleId: string;
-  providerName: string | null;
-  bundleName: string | null;
-  destinationType: string | null;
-  orderId: string | null;
-  eventId: string;
-};
+export type SalaamReviewRow = SalaamReviewRecord;
 
 export async function listSalaamReviews(): Promise<SalaamReviewRow[]> {
   const db = createAdminClient();
   const { data, error } = await db
     .from("salaam_offline_review_cases")
-    .select("*, offline_bundle_payment_mappings(top_tayo_bundle_id, destination_type, offline_category)")
+    .select(SALAAM_REVIEW_LIST_SELECT)
     .order("received_at", { ascending: false })
     .limit(100);
   if (error) throw error;
-  const mapped = ((data ?? []) as Record<string, unknown>[]).map((row) => {
-    const mapping = row.offline_bundle_payment_mappings as Record<string, unknown> | null;
-    return {
-      id: String(row.id),
-      status: row.status as SalaamReviewRow["status"],
-      reason: row.reason as SalaamReviewRow["reason"],
-      amountCents: Number(row.amount_cents),
-      payerMsisdn: String(row.payer_msisdn),
-      originalFaahfaahin: typeof row.original_faahfaahin === "string" ? row.original_faahfaahin : null,
-      correctedDestination:
-        typeof row.corrected_destination === "string" ? row.corrected_destination : null,
-      bankTicket: typeof row.bank_ticket === "string" ? row.bank_ticket : null,
-      providerReference: typeof row.provider_reference === "string" ? row.provider_reference : null,
-      receivedAt: String(row.received_at),
-      claimedBy: typeof row.claimed_by === "string" ? row.claimed_by : null,
-      claimedByName: null,
-      claimedAt: typeof row.claimed_at === "string" ? row.claimed_at : null,
-      resolvedBy: typeof row.resolved_by === "string" ? row.resolved_by : null,
-      resolvedByName: null,
-      resolvedAt: typeof row.resolved_at === "string" ? row.resolved_at : null,
-      bundleId: mapping ? String(mapping.top_tayo_bundle_id) : "",
-      providerName: typeof row.provider_name === "string" ? row.provider_name : null,
-      bundleName: typeof row.bundle_name === "string" ? row.bundle_name : null,
-      destinationType: mapping ? String(mapping.destination_type) : null,
-      orderId: typeof row.order_id === "string" ? row.order_id : null,
-      eventId: String(row.merchant_payment_event_id),
-    };
-  });
+  const mapped = ((data ?? []) as Record<string, unknown>[]).map((row) => mapSalaamReviewRecord(row));
   const identities = await loadSalaamAdminIdentities(
     db,
     mapped.flatMap((row) => [row.claimedBy, row.resolvedBy]),

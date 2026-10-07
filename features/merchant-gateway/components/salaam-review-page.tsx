@@ -8,7 +8,7 @@ import { salaamReviewActorLines } from "@/features/admin-users/identity";
 type Review = {
   id: string;
   status: "needs_review" | "claimed" | "resolved";
-  reason: "missing_faahfaahin" | "invalid_destination";
+  reason: "missing_faahfaahin" | "invalid_destination" | "unmatched_amount";
   amountCents: number;
   payerMsisdn: string;
   originalFaahfaahin: string | null;
@@ -33,7 +33,9 @@ function money(cents: number): string {
 }
 
 function reasonLabel(reason: Review["reason"]): string {
-  return reason === "missing_faahfaahin" ? "Faahfaahin is missing" : "Faahfaahin is not valid";
+  if (reason === "missing_faahfaahin") return "Faahfaahin is missing";
+  if (reason === "unmatched_amount") return "Amount does not match any Offline bundle";
+  return "Faahfaahin is not valid";
 }
 
 export function SalaamReviewPage({ hasAdminRole }: { hasAdminRole: boolean }) {
@@ -136,7 +138,19 @@ export function SalaamReviewPage({ hasAdminRole }: { hasAdminRole: boolean }) {
                   {line}
                 </p>
               ))}
-              {row.status !== "resolved" ? (
+              {row.status !== "resolved" && row.reason === "unmatched_amount" ? (
+                <div className="mt-3 flex flex-col gap-2">
+                  <p className="text-sm">The user has already paid. Fulfillment stays off until a price policy exists.</p>
+                  <button
+                    type="button"
+                    disabled={busy != null}
+                    onClick={() => void act(row.id, "claim")}
+                  >
+                    Claim before calling
+                  </button>
+                </div>
+              ) : null}
+              {row.status !== "resolved" && row.reason !== "unmatched_amount" ? (
                 <div className="mt-3 flex flex-col gap-2">
                   <button
                     type="button"
