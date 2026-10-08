@@ -10,6 +10,7 @@ export const MERCHANT_DEVICE_COLUMNS = [
   "receiver_msisdns",
   "last_heartbeat_at",
   "battery_percent",
+  "battery_alert_level",
   "is_charging",
   "network_connected",
   "network_type",

@@ -18,6 +18,7 @@ import type {
   TestingHistory,
   TestingHistoryRecord,
 } from "@/features/merchant-gateway/contracts";
+import { batteryAlertLevel, batteryWarningCleared } from "@/features/merchant-gateway/battery-alert";
 import { summarizeDeviceCounts } from "@/features/merchant-gateway/operations";
 import {
   alertCategory,
@@ -61,9 +62,20 @@ export async function getMerchantGatewaySummary(options?: {
       loadStatusReasons(),
     ]);
 
-  throwIfError(devicesResult.error);
+  let deviceRows = devicesResult;
+  if (
+    devicesResult.error &&
+    devicesResult.error.message.includes("battery_alert_level")
+  ) {
+    const columns = MERCHANT_DEVICE_COLUMNS.split(",")
+      .map((column) => column.trim())
+      .filter((column) => column !== "battery_alert_level")
+      .join(",");
+    deviceRows = await db.from("merchant_gateway_devices").select(columns).order("name");
+  }
+  throwIfError(deviceRows.error);
 
-  const allDevices = rows<DeviceRow>(devicesResult.data).map(mapDevice);
+  const allDevices = rows<DeviceRow>(deviceRows.data).map(mapDevice);
   const withReasons = allDevices.map((device) => ({
     ...device,
     statusReason: reasons.get(device.id) ?? null,
@@ -159,8 +171,24 @@ export async function getGatewayHistory(): Promise<GatewayHistory> {
   throwIfError(alertsResult.error);
   throwIfError(transitionsResult.error);
 
+  const gatewayRows = (alertsResult.data ?? []) as AlertRow[];
+  const batteryFacts = gatewayRows.map((row) => ({
+    deviceId: row.device_id ? String(row.device_id) : "",
+    kind: row.kind ?? "",
+    at: row.created_at,
+  }));
   const alerts = [
-    ...((alertsResult.data ?? []) as AlertRow[]).map((row) => mapAlert(row, names)),
+    ...gatewayRows.map((row) => {
+      const item = mapAlert(row, names);
+      const fact = {
+        deviceId: row.device_id ? String(row.device_id) : "",
+        kind: row.kind ?? "",
+        at: row.created_at,
+      };
+      return batteryWarningCleared(fact, batteryFacts)
+        ? { ...item, lifecycle: "resolved" as const }
+        : item;
+    }),
     ...fulfillment.rows.map(mapFulfillmentAlert),
   ].sort((left, right) => right.at.localeCompare(left.at));
   const transitions = ((transitionsResult.data ?? []) as TransitionRow[]).map((row) =>
@@ -266,6 +294,7 @@ type DeviceRow = {
   receiver_msisdns: unknown;
   last_heartbeat_at: string | null;
   battery_percent: number | null;
+  battery_alert_level: string | null;
   is_charging: boolean | null;
   network_connected: boolean | null;
   network_type: string | null;
@@ -288,6 +317,7 @@ function mapDevice(row: DeviceRow): MerchantGatewayDevice {
     receiverMsisdns: stringList(row.receiver_msisdns),
     lastHeartbeatAt: row.last_heartbeat_at,
     batteryPercent: numberOrNull(row.battery_percent),
+    batteryAlertLevel: batteryAlertLevel(row.battery_alert_level),
     isCharging: booleanOrNull(row.is_charging),
     networkConnected: booleanOrNull(row.network_connected),
     networkType: row.network_type,
@@ -572,6 +602,9 @@ function countActiveAlerts(
     (device) =>
       device.status === "OFFLINE" || device.status === "DEGRADED" || device.status === "REVOKED",
   ).length;
+  const battery = devices.filter(
+    (device) => device.status !== "REVOKED" && device.batteryAlertLevel != null,
+  ).length;
   const recovered = new Set(
     alerts
       .filter((alert) => alert.kind === "fulfillment_recovered" && alert.order_id)
@@ -587,7 +620,7 @@ function countActiveAlerts(
       )
       .map((alert) => String(alert.order_id)),
   );
-  return gateway + open.size;
+  return gateway + battery + open.size;
 }
 
 function throwIfError(error: { message: string } | null) {

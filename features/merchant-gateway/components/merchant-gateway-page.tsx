@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { PageHeading } from "@/components/dashboard/PageHeading";
 import { StatePanel } from "@/components/states/StatePanel";
+import { batteryWarningLabel } from "@/features/merchant-gateway/battery-alert";
 import { LiveStatus } from "@/features/merchant-gateway/components/live-status";
 import { PaidOrdersPanel } from "@/features/merchant-gateway/components/paid-orders-panel";
 import { PreproductionCleanupPanel } from "@/features/merchant-gateway/components/preproduction-cleanup-panel";
@@ -520,6 +521,13 @@ function GatewaysPanel({
   );
 }
 
+function batteryFact(device: MerchantGatewayDevice) {
+  const percent = formatBattery(device.batteryPercent);
+  const warning =
+    device.status === "REVOKED" ? null : batteryWarningLabel(device.batteryAlertLevel);
+  return warning ? `${percent} · ${warning}` : percent;
+}
+
 function GatewayCard({ device }: { device: MerchantGatewayDevice }) {
   const authorized = inferAuthorizedPaymentMethods(device.receiverMsisdns);
   const sims = (["edahab", "evc_plus"] as const).map((method) =>
@@ -559,7 +567,7 @@ function GatewayCard({ device }: { device: MerchantGatewayDevice }) {
         <Fact label="Last payment" value={formatRelativeTime(device.lastMerchantEventAt)} />
         <Fact label="Pending upload" value={displayOptionalCount(device.pendingUploadCount)} />
         <Fact label="Network" value={formatOperatorNetwork(device.networkConnected, device.networkType)} />
-        <Fact label="Battery" value={formatBattery(device.batteryPercent)} />
+        <Fact label="Battery" value={batteryFact(device)} />
         <Fact label="App" value={device.appVersion || "Not reported"} />
       </dl>
       {device.receiverMsisdns.length > 0 ? (

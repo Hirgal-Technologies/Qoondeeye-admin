@@ -47,6 +47,8 @@ export type MerchantGatewayDevice = {
   receiverMsisdns: string[];
   lastHeartbeatAt: string | null;
   batteryPercent: number | null;
+  /** Active battery warning. Null after recovery or when no warning is open. */
+  batteryAlertLevel: "low" | "critical" | null;
   isCharging: boolean | null;
   networkConnected: boolean | null;
   networkType: string | null;

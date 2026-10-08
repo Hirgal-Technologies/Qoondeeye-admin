@@ -296,6 +296,9 @@ export function alertLabel(kind: string) {
     gateway_offline: "Gateway offline",
     gateway_recovered: "Gateway recovered",
     gateway_degraded: "Gateway degraded",
+    gateway_battery_low: "Battery low",
+    gateway_battery_critical: "Battery critical",
+    gateway_battery_recovered: "Battery recovered",
     fulfillment_held: "Fulfillment held",
     fulfillment_recovered: "Fulfillment recovered",
     paid_stuck: "Paid order stuck",
@@ -313,15 +316,27 @@ export function alertLabel(kind: string) {
 }
 
 export function alertTone(kind: string): GatewayHistoryItem["tone"] {
-  if (kind === "gateway_recovered" || kind === "fulfillment_recovered") return "success";
+  if (
+    kind === "gateway_recovered" ||
+    kind === "fulfillment_recovered" ||
+    kind === "gateway_battery_recovered"
+  ) {
+    return "success";
+  }
   if (
     kind === "gateway_degraded" ||
+    kind === "gateway_battery_low" ||
     kind === "fulfillment_held" ||
     kind === "paid_stuck"
   ) {
     return "warning";
   }
-  if (kind === "gateway_offline" || kind === "recharge_uncertain" || kind.includes("sim")) {
+  if (
+    kind === "gateway_offline" ||
+    kind === "gateway_battery_critical" ||
+    kind === "recharge_uncertain" ||
+    kind.includes("sim")
+  ) {
     return "critical";
   }
   return "neutral";
@@ -334,7 +349,13 @@ export function alertCategory(kind: string): GatewayHistoryItem["category"] {
 }
 
 export function alertLifecycle(kind: string): GatewayHistoryItem["lifecycle"] {
-  if (kind === "gateway_recovered" || kind === "fulfillment_recovered") return "resolved";
+  if (
+    kind === "gateway_recovered" ||
+    kind === "fulfillment_recovered" ||
+    kind === "gateway_battery_recovered"
+  ) {
+    return "resolved";
+  }
   return "active";
 }
 
@@ -348,6 +369,7 @@ export function transitionTone(toStatus: string): GatewayHistoryItem["tone"] {
 
 const SAFE_ALERT_FIELDS = new Set([
   "reason",
+  "batteryPercent",
   "status",
   "sim",
   "network_type",
