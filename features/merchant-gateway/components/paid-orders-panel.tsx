@@ -47,6 +47,9 @@ export function PaidOrdersPanel({
   const [noticeTone, setNoticeTone] = useState<"neutral" | "critical">("neutral");
   const [submitting, setSubmitting] = useState(false);
   const [checkingId, setCheckingId] = useState<string | null>(null);
+  const [checkResults, setCheckResults] = useState<
+    Record<string, { tone: "neutral" | "critical"; message: string }>
+  >({});
   const [historyOpen, setHistoryOpen] = useState(false);
   const [orderFilter, setOrderFilter] = useState<PendingOrderViewFilter>({
     bucket: "all",
@@ -96,44 +99,30 @@ export function PaidOrdersPanel({
   }
 
   async function checkTopTayo(order: PaidFulfillmentOrder) {
-    const transactionId =
-      order.topTayoTransactionIds.find((id) => id.trim())?.trim() ||
-      order.pendingRecordTransactionId?.trim() ||
-      "";
-    if (!transactionId) {
-      setNoticeTone("neutral");
-      setNotice(
-        "No TopTayo transaction id is stored. Qoondeeye must reconcile this order. This dashboard will not send another recharge.",
-      );
-      return;
-    }
     setCheckingId(order.id);
     setNotice(null);
+    const fallback =
+      "TopTayo status could not be checked. The order was not changed and no recharge was sent.";
+    const remember = (tone: "neutral" | "critical", message: string) => {
+      setNoticeTone(tone);
+      setNotice(message);
+      setCheckResults((current) => ({ ...current, [order.id]: { tone, message } }));
+    };
     try {
-      const response = await fetch(
-        `/api/resellers/transactions/${encodeURIComponent(transactionId)}`,
-      );
+      const response = await fetch("/api/merchant-gateway/order-status-refresh", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ orderId: order.id }),
+      });
       const payload = (await response.json().catch(() => null)) as {
-        data?: { id?: string; status?: string } | null;
+        data?: { message?: string; changed?: boolean } | null;
         error?: string | null;
       } | null;
-      if (!response.ok || payload?.error || !payload?.data) {
-        setNoticeTone("critical");
-        setNotice(payload?.error || "TopTayo status unavailable");
-        return;
-      }
-      const status = payload.data.status ?? "status unavailable";
-      const completed = /complete|success|delivered/i.test(status);
-      setNoticeTone("neutral");
-      setNotice(
-        completed
-          ? `TopTayo ${payload.data.id ?? transactionId} reports ${status}. The order was reloaded from Qoondeeye. This console did not mark fulfillment successful.`
-          : `TopTayo ${payload.data.id ?? transactionId}: ${status}. The order was reloaded from Qoondeeye and was not changed here.`,
-      );
-      onRefresh();
+      const message = payload?.data?.message || payload?.error || fallback;
+      remember(response.ok && payload?.data ? "neutral" : "critical", message);
+      if (payload?.data?.changed) onRefresh();
     } catch {
-      setNoticeTone("critical");
-      setNotice("TopTayo status unavailable");
+      remember("critical", fallback);
     } finally {
       setCheckingId(null);
     }
@@ -189,7 +178,7 @@ export function PaidOrdersPanel({
                 ["all", "All open"],
                 ["needs_fulfillment", "Needs fulfillment"],
                 ["fulfillment_held", "Held"],
-                ["toptayo_processing", "TopTayo processing"],
+                ["toptayo_processing", "Awaiting TopTayo confirmation"],
                 ["recharge_uncertain", "Recharge uncertain"],
               ]}
             />
@@ -267,6 +256,8 @@ export function PaidOrdersPanel({
                     onReconcile={onReconcile}
                     onRefresh={onRefresh}
                     onCheck={() => void checkTopTayo(order)}
+                    checkMessage={checkResults[order.id]?.message}
+                    checkTone={checkResults[order.id]?.tone}
                   />
                 ))}
               </tbody>
@@ -287,6 +278,8 @@ export function PaidOrdersPanel({
                 onReconcile={onReconcile}
                 onRefresh={onRefresh}
                 onCheck={() => void checkTopTayo(order)}
+                checkMessage={checkResults[order.id]?.message}
+                checkTone={checkResults[order.id]?.tone}
               />
             ))}
           </div>
@@ -390,6 +383,8 @@ type RowActions = {
   onReconcile: () => void;
   onRefresh: () => void;
   onCheck: () => void;
+  checkMessage?: string;
+  checkTone?: "neutral" | "critical";
 };
 
 function OrderRow(props: RowActions) {
@@ -412,6 +407,14 @@ function OrderRow(props: RowActions) {
       <td className="px-2 py-2 text-muted-foreground">{formatRelativeTime(order.paidAt ?? order.lastFulfillmentAttemptAt)}</td>
       <td className="sticky right-0 bg-card px-2 py-2">
         <OrderActions {...props} />
+        {props.checkMessage ? (
+          <p
+            className={`mt-1 text-[10px] leading-4 ${props.checkTone === "critical" ? "text-critical" : "text-muted-foreground"}`}
+            role="status"
+          >
+            {props.checkMessage}
+          </p>
+        ) : null}
       </td>
     </tr>
   );
@@ -434,6 +437,14 @@ function OrderCard(props: RowActions) {
       </p>
       <div className="mt-2">
         <OrderActions {...props} />
+        {props.checkMessage ? (
+          <p
+            className={`mt-1 text-[10px] leading-4 ${props.checkTone === "critical" ? "text-critical" : "text-muted-foreground"}`}
+            role="status"
+          >
+            {props.checkMessage}
+          </p>
+        ) : null}
       </div>
     </article>
   );
@@ -615,7 +626,7 @@ function BucketPill({ bucket, fulfillment }: { bucket: PaidOrderBucket; fulfillm
     bucket === "recharge_uncertain"
       ? "Recharge uncertain"
       : bucket === "toptayo_processing"
-        ? "TopTayo processing"
+        ? "Awaiting TopTayo confirmation"
         : bucket === "fulfillment_held"
           ? "Fulfillment held"
           : bucket === "needs_fulfillment"

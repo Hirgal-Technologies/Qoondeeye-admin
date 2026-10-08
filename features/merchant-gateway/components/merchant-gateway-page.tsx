@@ -1009,8 +1009,8 @@ function ReconciliationPanel({
           state={orderQueueState}
         />
         <QueueCard
-          title="TopTayo processing"
-          empty="No TopTayo processing orders"
+          title="Awaiting TopTayo confirmation"
+          empty="No orders awaiting TopTayo confirmation"
           rows={(paidOrders ?? [])
             .filter((order) => paidOrderBucket(order) === "toptayo_processing")
             .map((order) => orderQueueLine(order))}

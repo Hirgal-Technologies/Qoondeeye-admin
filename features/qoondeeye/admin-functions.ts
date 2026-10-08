@@ -14,6 +14,7 @@ const FUNCTION_NAMES = {
   uncertain: "bundles-admin-manual-fulfillment-uncertain",
   revokeGateway: "bundles-admin-gateway-revoke",
   preproductionCleanup: "bundles-admin-preproduction-cleanup",
+  orderStatusRefresh: "bundles-admin-order-status-refresh",
 } as const;
 
 export type QoondeeyeAdminFunction = keyof typeof FUNCTION_NAMES;
