@@ -60,6 +60,7 @@ export async function loadPaidFulfillmentBoard(): Promise<{
     db
       .from("bundle_purchase_orders")
       .select(PAID_ORDER_COLUMNS)
+      .is("operational_archived_at", null)
       .eq("payment_status", "PAYMENT_CONFIRMED")
       .not("fulfillment_status", "in", `(${CLOSED_FULFILLMENT_STATUSES.join(",")})`)
       .order("payment_confirmed_at", { ascending: true })
@@ -67,6 +68,7 @@ export async function loadPaidFulfillmentBoard(): Promise<{
     db
       .from("bundle_purchase_orders")
       .select(PAID_ORDER_COLUMNS)
+      .is("operational_archived_at", null)
       .eq("payment_status", "PAYMENT_CONFIRMED")
       .eq("fulfillment_status", "COMPLETED")
       .order("completed_at", { ascending: false })
@@ -74,17 +76,20 @@ export async function loadPaidFulfillmentBoard(): Promise<{
     db
       .from("bundle_purchase_orders")
       .select("id", { count: "exact", head: true })
+      .is("operational_archived_at", null)
       .eq("payment_status", "PAYMENT_CONFIRMED")
       .not("fulfillment_status", "in", `(${CLOSED_FULFILLMENT_STATUSES.join(",")})`),
     db
       .from("bundle_purchase_orders")
       .select("id", { count: "exact", head: true })
+      .is("operational_archived_at", null)
       .eq("payment_status", "PAYMENT_CONFIRMED")
       .not("fulfillment_status", "in", `(${CLOSED_FULFILLMENT_STATUSES.join(",")})`)
       .eq("failure_code", "recharge_uncertain"),
     db
       .from("bundle_purchase_orders")
       .select("id", { count: "exact", head: true })
+      .is("operational_archived_at", null)
       .eq("payment_status", "PAYMENT_CONFIRMED")
       .not("fulfillment_status", "in", `(${CLOSED_FULFILLMENT_STATUSES.join(",")})`)
       .in("failure_code", [...HOLD_FAILURE_CODES]),

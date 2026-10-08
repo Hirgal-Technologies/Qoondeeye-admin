@@ -29,6 +29,7 @@ export const MERCHANT_SECTIONS: MerchantGatewaySection[] = [
   "payments",
   "alerts",
   "reconciliation",
+  "history",
 ];
 
 const UUID_PATTERN =

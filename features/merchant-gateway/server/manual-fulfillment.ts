@@ -20,6 +20,8 @@ const COPY = {
   recording_unavailable:
     "No stored TopTayo transaction id was found. Refresh the order. Do not purchase again.",
   not_sent: "No recharge was sent.",
+  operationally_archived:
+    "This order is in the testing archive. No recharge was sent, and fulfillment status was not changed.",
   begin_send_unconfirmed:
     "Qoondeeye did not confirm that sending started. No recharge was sent. Refresh before continuing.",
   invalid_request: "The manual fulfillment request was incomplete.",
@@ -108,7 +110,12 @@ export async function runManualFulfillment(
     return {
       ok: true,
       state: "not_sent",
-      message: result.code === "begin_send_unconfirmed" ? COPY.begin_send_unconfirmed : COPY.not_sent,
+      message:
+        result.code === "begin_send_unconfirmed"
+          ? COPY.begin_send_unconfirmed
+          : result.code === "operationally_archived"
+            ? COPY.operationally_archived
+            : COPY.not_sent,
       transactionId: null,
     };
   }

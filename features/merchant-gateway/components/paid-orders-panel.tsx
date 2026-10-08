@@ -8,12 +8,14 @@ import type {
 } from "@/features/merchant-gateway/contracts";
 import {
   RESUME_CANONICAL_FULFILLMENT_SUPPORTED,
+  filterPendingOrders,
   fulfillmentOperatorAction,
   isCanonicalResumeCase,
   isClosedFulfillment,
   maskPhone,
   paidOrderBucket,
   type PaidOrderBucket,
+  type PendingOrderViewFilter,
 } from "@/features/merchant-gateway/operations";
 import {
   formatMoney,
@@ -46,9 +48,16 @@ export function PaidOrdersPanel({
   const [submitting, setSubmitting] = useState(false);
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [orderFilter, setOrderFilter] = useState<PendingOrderViewFilter>({
+    bucket: "all",
+    method: "all",
+    minAge: "any",
+    urgentOnly: false,
+  });
   const attention = orders.filter(
     (order) => !isClosedFulfillment(order.fulfillmentStatus),
   );
+  const visible = filterPendingOrders(attention, orderFilter, Date.now());
   const confirmOrder = attention.find((order) => order.id === confirmId) ?? null;
   const detailOrder =
     [...attention, ...recentCompleted].find((order) => order.id === detailId) ?? null;
@@ -166,6 +175,69 @@ export function PaidOrdersPanel({
         </div>
       ) : (
         <>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <FilterSelect
+              label="Status"
+              value={orderFilter.bucket}
+              onChange={(bucket) =>
+                setOrderFilter((current) => ({
+                  ...current,
+                  bucket: bucket as PendingOrderViewFilter["bucket"],
+                }))
+              }
+              options={[
+                ["all", "All open"],
+                ["needs_fulfillment", "Needs fulfillment"],
+                ["fulfillment_held", "Held"],
+                ["toptayo_processing", "TopTayo processing"],
+                ["recharge_uncertain", "Recharge uncertain"],
+              ]}
+            />
+            <FilterSelect
+              label="Method"
+              value={orderFilter.method}
+              onChange={(method) =>
+                setOrderFilter((current) => ({
+                  ...current,
+                  method: method as PendingOrderViewFilter["method"],
+                }))
+              }
+              options={[
+                ["all", "All methods"],
+                ["evc_plus", "EVC Plus"],
+                ["edahab", "eDahab"],
+              ]}
+            />
+            <FilterSelect
+              label="Age"
+              value={orderFilter.minAge}
+              onChange={(minAge) =>
+                setOrderFilter((current) => ({
+                  ...current,
+                  minAge: minAge as PendingOrderViewFilter["minAge"],
+                }))
+              }
+              options={[
+                ["any", "Any age"],
+                ["1h", "Older than 1 hour"],
+                ["24h", "Older than 24 hours"],
+                ["7d", "Older than 7 days"],
+              ]}
+            />
+            <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={orderFilter.urgentOnly}
+                onChange={(event) =>
+                  setOrderFilter((current) => ({ ...current, urgentOnly: event.target.checked }))
+                }
+              />
+              Urgent only
+            </label>
+          </div>
+          {visible.length === 0 ? (
+            <p className="mt-3 text-xs text-muted-foreground">No orders match these filters.</p>
+          ) : null}
           <div className="mt-3 hidden md:block">
             <table className="w-full table-fixed text-left text-xs">
               <thead>
@@ -181,7 +253,7 @@ export function PaidOrdersPanel({
                 </tr>
               </thead>
               <tbody>
-                {attention.map((order) => (
+                {visible.map((order) => (
                   <OrderRow
                     key={order.id}
                     order={order}
@@ -201,7 +273,7 @@ export function PaidOrdersPanel({
             </table>
           </div>
           <div className="mt-3 flex flex-col gap-2 md:hidden">
-            {attention.map((order) => (
+            {visible.map((order) => (
               <OrderCard
                 key={order.id}
                 order={order}
@@ -622,4 +694,33 @@ function Fact({ label, value }: { label: string; value: string }) {
 
 function shortId(value: string) {
   return value.length > 8 ? `${value.slice(0, 8)}…` : value;
+}
+
+function FilterSelect({
+  label,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<[string, string]>;
+}) {
+  return (
+    <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+      {label}
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-8 rounded-md border bg-background px-2 text-xs text-foreground"
+      >
+        {options.map(([optionValue, optionLabel]) => (
+          <option key={optionValue} value={optionValue}>
+            {optionLabel}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
 }

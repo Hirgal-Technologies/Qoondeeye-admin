@@ -21,7 +21,24 @@ export type MerchantGatewaySection =
   | "gateways"
   | "payments"
   | "alerts"
-  | "reconciliation";
+  | "reconciliation"
+  | "history";
+
+export type TestingHistoryRecord = {
+  id: string;
+  kind: "order" | "payment" | "gateway_alert" | "fulfillment_alert";
+  label: string;
+  detail: string;
+  archivedAt: string;
+  /** Original status text. Administrative archive does not rewrite this into success. */
+  financialStatus: string | null;
+};
+
+export type TestingHistory = {
+  orders: TestingHistoryRecord[];
+  payments: TestingHistoryRecord[];
+  alerts: TestingHistoryRecord[];
+};
 
 export type MerchantGatewayDevice = {
   id: string;

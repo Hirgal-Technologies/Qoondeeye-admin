@@ -50,6 +50,9 @@ test("production gateway list drops the simulator card", () => {
   assert.equal(page.includes("Simulator gateway"), false);
   assert.equal(page.includes("Revoke gateway"), true);
   assert.equal(page.includes("Revoked and historical gateways"), true);
+  assert.match(page, /<details /);
+  assert.equal(page.includes("<details open"), false);
+  assert.equal(page.includes("Testing history"), true);
   assert.equal(page.includes("useEffect"), false);
 });
 
@@ -68,8 +71,14 @@ test("an eDahab-only gateway does not show EVC Plus as missing", () => {
   assert.equal(evc.value, "Not configured");
   assert.equal(evc.tone, "neutral");
   assert.notEqual(evc.value, "Missing");
-  assert.equal(edahab.value, "Connected");
+  assert.notEqual(evc.value, "Connected");
+  assert.equal(edahab.value, "Authorized and verified");
   assert.equal(edahab.tone, "success");
+  const presentOnly = simDisplay("evc_plus", ["edahab"], true);
+  assert.equal(presentOnly.value, "SIM present, not authorized");
+  assert.notEqual(presentOnly.value, "Connected");
+  const missingAuthorized = simDisplay("edahab", ["edahab"], false);
+  assert.equal(missingAuthorized.value, "Authorized, not verified");
 });
 
 test("the hardcoded $25 balance warning is gone and the live balance remains", () => {

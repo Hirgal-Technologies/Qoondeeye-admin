@@ -210,11 +210,14 @@ export function simDisplay(
 ): SimDisplay {
   const label = method === "evc_plus" ? "EVC Plus" : "eDahab";
   if (!authorized.includes(method)) {
+    if (detected === true) {
+      return { label, value: "SIM present, not authorized", tone: "neutral" };
+    }
     return { label, value: "Not configured", tone: "neutral" };
   }
-  if (detected === true) return { label, value: "Connected", tone: "success" };
-  if (detected === false) return { label, value: "Missing", tone: "critical" };
-  return { label, value: "Unknown", tone: "neutral" };
+  if (detected === true) return { label, value: "Authorized and verified", tone: "success" };
+  if (detected === false) return { label, value: "Authorized, not verified", tone: "critical" };
+  return { label, value: "Authorized, not reported", tone: "neutral" };
 }
 
 export function maskPhone(value: string | null | undefined) {
@@ -254,6 +257,80 @@ export function summarizeDeviceCounts(devices: readonly CountSource[]) {
     }).length,
     excludedLabGateways: devices.length - production.length,
   };
+}
+
+export type PendingOrderViewFilter = {
+  bucket: "all" | "needs_fulfillment" | "fulfillment_held" | "recharge_uncertain" | "toptayo_processing";
+  method: "all" | "evc_plus" | "edahab";
+  minAge: "any" | "1h" | "24h" | "7d";
+  urgentOnly: boolean;
+};
+
+const PENDING_AGE_MS: Record<PendingOrderViewFilter["minAge"], number> = {
+  any: 0,
+  "1h": 60 * 60 * 1000,
+  "24h": 24 * 60 * 60 * 1000,
+  "7d": 7 * 24 * 60 * 60 * 1000,
+};
+
+export function orderAgeMs(
+  order: { paidAt: string | null; updatedAt: string | null },
+  nowMs: number,
+) {
+  const raw = order.paidAt || order.updatedAt;
+  if (!raw) return null;
+  const time = Date.parse(raw);
+  if (!Number.isFinite(time)) return null;
+  return Math.max(0, nowMs - time);
+}
+
+export function orderIsUrgent(
+  order: {
+    paymentStatus: string;
+    fulfillmentStatus: string;
+    failureCode: string | null;
+    reservationOutcome: string | null;
+    topTayoTransactionIds?: readonly string[];
+    paidAt: string | null;
+    updatedAt: string | null;
+  },
+  nowMs: number,
+) {
+  const bucket = paidOrderBucket(order);
+  if (bucket === "recharge_uncertain" || bucket === "fulfillment_held") return true;
+  const age = orderAgeMs(order, nowMs);
+  return age != null && age >= PENDING_AGE_MS["24h"];
+}
+
+export function filterPendingOrders<
+  T extends {
+    paymentStatus: string;
+    fulfillmentStatus: string;
+    failureCode: string | null;
+    reservationOutcome: string | null;
+    topTayoTransactionIds?: readonly string[];
+    paymentMethod: string | null;
+    paidAt: string | null;
+    updatedAt: string | null;
+  },
+>(orders: readonly T[], filter: PendingOrderViewFilter, nowMs: number) {
+  return orders.filter((order) => {
+    if (isClosedFulfillment(order.fulfillmentStatus)) return false;
+    const bucket = paidOrderBucket(order);
+    if (filter.bucket !== "all" && bucket !== filter.bucket) return false;
+    if (filter.method !== "all") {
+      const method = (order.paymentMethod ?? "").trim().toLowerCase();
+      const normalized = method === "evc" ? "evc_plus" : method;
+      if (normalized !== filter.method) return false;
+    }
+    const minimum = PENDING_AGE_MS[filter.minAge];
+    if (minimum > 0) {
+      const age = orderAgeMs(order, nowMs);
+      if (age == null || age < minimum) return false;
+    }
+    if (filter.urgentOnly && !orderIsUrgent(order, nowMs)) return false;
+    return true;
+  });
 }
 
 export type AlertFilter = "active" | "resolved" | "gateway" | "payment" | "fulfillment";

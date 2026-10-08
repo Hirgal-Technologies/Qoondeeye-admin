@@ -15,6 +15,8 @@ import type {
   MerchantPaymentEvent,
   PaymentReviewFilter,
   ReconciliationContext,
+  TestingHistory,
+  TestingHistoryRecord,
 } from "@/features/merchant-gateway/contracts";
 import { summarizeDeviceCounts } from "@/features/merchant-gateway/operations";
 import {
@@ -111,6 +113,7 @@ export async function listMerchantPayments(
   let query = db
     .from("bundle_merchant_payment_events")
     .select(MERCHANT_PAYMENT_COLUMNS)
+    .is("operational_archived_at", null)
     .limit(100);
 
   if (status === "MATCHED") {
@@ -143,6 +146,7 @@ export async function getGatewayHistory(): Promise<GatewayHistory> {
     db
       .from("merchant_gateway_alerts")
       .select("id, device_id, kind, payload, created_at")
+      .is("operational_archived_at", null)
       .order("created_at", { ascending: false })
       .limit(100),
     db
@@ -176,12 +180,14 @@ export async function getReconciliationContext(): Promise<ReconciliationContext>
     db
       .from("bundle_merchant_payment_events")
       .select(MERCHANT_PAYMENT_COLUMNS)
+      .is("operational_archived_at", null)
       .in("match_status", ["UNMATCHED", "AMBIGUOUS", "MANUAL_REVIEW"])
       .order("received_at", { ascending: false })
       .limit(100),
     db
       .from("bundle_purchase_orders")
       .select(PENDING_ORDER_COLUMNS)
+      .is("operational_archived_at", null)
       .eq("payment_status", "PENDING")
       .eq("fulfillment_status", "NOT_STARTED")
       .order("created_at", { ascending: false })
@@ -221,6 +227,7 @@ async function loadPendingOrders() {
   const { data, error } = await db
     .from("bundle_purchase_orders")
     .select(PENDING_ORDER_COLUMNS)
+    .is("operational_archived_at", null)
     .eq("payment_status", "PENDING")
     .eq("fulfillment_status", "NOT_STARTED")
     .order("created_at", { ascending: false })
@@ -234,6 +241,7 @@ async function countMatchStatus(status: string) {
   const { count, error } = await db
     .from("bundle_merchant_payment_events")
     .select("id", { count: "exact", head: true })
+    .is("operational_archived_at", null)
     .eq("match_status", status);
   throwIfError(error);
   return count ?? 0;
@@ -497,6 +505,7 @@ async function loadFulfillmentAlerts() {
   const { data, error } = await db
     .from("bundle_fulfillment_alerts")
     .select("id, order_id, kind, payload, created_at")
+    .is("operational_archived_at", null)
     .order("created_at", { ascending: false })
     .limit(100);
   if (error) return { available: false, rows: [] as FulfillmentAlertRow[] };
@@ -583,4 +592,96 @@ function countActiveAlerts(
 
 function throwIfError(error: { message: string } | null) {
   if (error) throw error;
+}
+
+/**
+ * Archived pre-production records. Original payment and fulfillment statuses
+ * are shown as stored. This view is not a fulfillment success list.
+ */
+export async function getTestingHistory(): Promise<TestingHistory> {
+  const db = createAdminClient();
+  const [ordersResult, paymentsResult, gatewayAlertsResult, fulfillmentAlertsResult] = await Promise.all([
+    db
+      .from("bundle_purchase_orders")
+      .select("id, bundle_name, payment_status, fulfillment_status, operational_archived_at, operational_archive_kind")
+      .not("operational_archived_at", "is", null)
+      .order("operational_archived_at", { ascending: false })
+      .limit(100),
+    db
+      .from("bundle_merchant_payment_events")
+      .select("id, match_status, amount_cents, currency, operational_archived_at")
+      .not("operational_archived_at", "is", null)
+      .order("operational_archived_at", { ascending: false })
+      .limit(100),
+    db
+      .from("merchant_gateway_alerts")
+      .select("id, kind, operational_archived_at")
+      .not("operational_archived_at", "is", null)
+      .order("operational_archived_at", { ascending: false })
+      .limit(100),
+    db
+      .from("bundle_fulfillment_alerts")
+      .select("id, kind, order_id, operational_archived_at")
+      .not("operational_archived_at", "is", null)
+      .order("operational_archived_at", { ascending: false })
+      .limit(100),
+  ]);
+  throwIfError(ordersResult.error);
+  throwIfError(paymentsResult.error);
+  throwIfError(gatewayAlertsResult.error);
+  throwIfError(fulfillmentAlertsResult.error);
+
+  const orders = rows<Record<string, unknown>>(ordersResult.data).map((row) =>
+    historyRecord({
+      id: String(row.id),
+      kind: "order",
+      label: textOr(row.bundle_name, "Bundle order"),
+      detail: `Payment ${textOr(row.payment_status, "unknown")} · Fulfillment ${textOr(row.fulfillment_status, "unknown")}`,
+      archivedAt: textOr(row.operational_archived_at, ""),
+      financialStatus: textOr(row.fulfillment_status, null),
+    }),
+  );
+  const payments = rows<Record<string, unknown>>(paymentsResult.data).map((row) =>
+    historyRecord({
+      id: String(row.id),
+      kind: "payment",
+      label: textOr(row.match_status, "Payment"),
+      detail: "Archived from the live review queue. Match status was not changed.",
+      archivedAt: textOr(row.operational_archived_at, ""),
+      financialStatus: textOr(row.match_status, null),
+    }),
+  );
+  const alerts = [
+    ...rows<Record<string, unknown>>(gatewayAlertsResult.data).map((row) =>
+      historyRecord({
+        id: String(row.id),
+        kind: "gateway_alert" as const,
+        label: textOr(row.kind, "Gateway alert"),
+        detail: "Archived gateway alert",
+        archivedAt: textOr(row.operational_archived_at, ""),
+        financialStatus: null,
+      }),
+    ),
+    ...rows<Record<string, unknown>>(fulfillmentAlertsResult.data).map((row) =>
+      historyRecord({
+        id: String(row.id),
+        kind: "fulfillment_alert" as const,
+        label: textOr(row.kind, "Fulfillment alert"),
+        detail: "Archived fulfillment alert. The order status was not changed.",
+        archivedAt: textOr(row.operational_archived_at, ""),
+        financialStatus: null,
+      }),
+    ),
+  ];
+  return { orders, payments, alerts };
+}
+
+function historyRecord(record: TestingHistoryRecord): TestingHistoryRecord {
+  return record;
+}
+
+function textOr(value: unknown, fallback: string): string;
+function textOr(value: unknown, fallback: null): string | null;
+function textOr(value: unknown, fallback: string | null) {
+  return typeof value === "string" && value.trim() ? value : fallback;
 }

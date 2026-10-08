@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Archive,
   Bell,
   CircleAlert,
   RefreshCw,
@@ -15,6 +16,8 @@ import { PageHeading } from "@/components/dashboard/PageHeading";
 import { StatePanel } from "@/components/states/StatePanel";
 import { LiveStatus } from "@/features/merchant-gateway/components/live-status";
 import { PaidOrdersPanel } from "@/features/merchant-gateway/components/paid-orders-panel";
+import { PreproductionCleanupPanel } from "@/features/merchant-gateway/components/preproduction-cleanup-panel";
+import { TestingHistoryPanel } from "@/features/merchant-gateway/components/testing-history-panel";
 import type {
   BundleOrderSnapshot,
   GatewayHistory,
@@ -277,6 +280,12 @@ function AuthorizedMerchantGateway({ canReconcile }: { canReconcile: boolean }) 
           label="Reconciliation"
           onClick={() => openSection("reconciliation")}
         />
+        <SectionTab
+          active={section === "history"}
+          icon={Archive}
+          label="Testing history"
+          onClick={() => openSection("history")}
+        />
       </div>
 
       {section === "gateways" ? (
@@ -304,6 +313,7 @@ function AuthorizedMerchantGateway({ canReconcile }: { canReconcile: boolean }) 
           }
         />
       ) : null}
+      {section === "history" ? <TestingHistoryPanel /> : null}
       {section === "reconciliation" ? (
         <ReconciliationPanel
           canReconcile={canReconcile}
@@ -369,7 +379,7 @@ function GatewaysPanel({
       <section className="rounded-lg border bg-card p-4 shadow-[var(--shadow-card)] sm:p-5">
         <h2 className="text-sm font-semibold text-foreground">Gateway devices</h2>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          Server health is authoritative. A payment method that is not authorized is shown as not configured.
+          Server health is authoritative. A method is verified only when it is authorized and the gateway reports that SIM. SIM presence alone is not a connected method.
         </p>
         <div className="mt-4">
           {summary.status === "loading" ? <CardSkeleton /> : null}
@@ -401,10 +411,12 @@ function GatewaysPanel({
       </section>
 
       {summary.status === "success" && historicalDevices.length > 0 ? (
-        <section className="rounded-lg border bg-card p-4 shadow-[var(--shadow-card)] sm:p-5">
-          <h2 className="text-sm font-semibold text-foreground">Revoked and historical gateways</h2>
+        <details className="rounded-lg border bg-card p-4 shadow-[var(--shadow-card)] sm:p-5">
+          <summary className="cursor-pointer text-sm font-semibold text-foreground">
+            Revoked and historical gateways ({historicalDevices.length})
+          </summary>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">
-            Lab and revoked gateways stay out of the active count. Revoke keeps history and does not delete the device.
+            Offline and revoked registrations stay here. Being offline does not revoke a device. Revoke keeps history and does not delete the device.
           </p>
           <div className="mt-4 grid grid-cols-1 gap-3 xl:grid-cols-2">
             {historicalDevices.map((device) => (
@@ -436,7 +448,14 @@ function GatewaysPanel({
               </article>
             ))}
           </div>
-        </section>
+        </details>
+      ) : null}
+
+      {summary.status === "success" ? (
+        <PreproductionCleanupPanel
+          devices={[...productionDevices, ...historicalDevices]}
+          onApplied={onRefresh}
+        />
       ) : null}
 
       {revokeTarget ? (
